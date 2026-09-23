@@ -34,7 +34,7 @@
  * one (Eurorack convention); with no clock it rewinds at once.
  *
  * Output pitch is in volts, 1 V/oct: 0 V = C, plus the key root, plus the
- * voice's base octave (bass 1, lead 3), folded into 0..5 V by octaves. The
+ * voice's base octave (bass 1, lead 2), folded into 0..5 V by octaves. The
  * board adds calibration and clamps to the jack.
  */
 #pragma once
@@ -138,6 +138,7 @@ typedef struct {
     uint8_t  slot, queued;   /* queued == slot when nothing is queued */
     bool     mute;
     bool     gate;
+    bool     tied;           /* the sounding note is longer than its step */
     double   gate_off;       /* tick at which the gate falls */
     float    pitch, target;  /* semitones above 0 V */
     float    glide_rate;     /* semitones per ms, 0 = arrived */
@@ -151,7 +152,7 @@ typedef struct {
     seq_drums_t   drums[SEQ_DRUM_SLOTS];
     seq_prog_t    prog;
     uint8_t       base_octave[SEQ_VOICES]; /* octaves above 0 V (= C):
-                                              bass 1, lead 3 */
+                                              bass 1, lead 2 */
 
     /* global */
     float    bpm;       /* internal tempo, 30..300 */
@@ -195,7 +196,9 @@ void seq_reset_edge(seq_t *s, uint32_t now_us);
 /* Advance to now_us and write the outputs. */
 void seq_process(seq_t *s, uint32_t now_us, seq_out_t *out);
 
-/* Generated voices. These act on the voice's current slot. */
+/* Generated voices. These act on the voice's current slot. The knobs pointer
+ * changes when a queued pattern takes over at a bar line: fetch it each
+ * time, don't keep it. */
 seq_knobs_t *seq_knobs(seq_t *s, int voice);
 void seq_roll(seq_t *s, int voice);
 void seq_mutate(seq_t *s, int voice, float amount); /* 0..1 of the steps */

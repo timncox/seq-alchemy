@@ -624,6 +624,20 @@ static void test_gates_and_glide(void)
           (to - from) * 12.f);
     CHECK(mid > from && mid < to, "slide passes between (%.3f %.3f %.3f)", from, mid, to);
 
+    /* Swing must not turn full-step notes into ties: a swung odd step's
+     * gate reaches past the next (unswung) step's start. */
+    seq_init(&S, 8);
+    locked_bass(&S);
+    S.swing = 0.75f;
+    set_lock(&S, 0, true, 16, false, 0);
+    set_lock(&S, 1, true, 16, false, 0);
+    set_lock(&S, 2, true, 16, false, 0);
+    rec_clear();
+    seq_process(&S, 0, NULL);
+    seq_play(&S);
+    run(&S, 0, 400, 0, 0, 0);
+    CHECK(R.gate_up[SEQ_BASS].n == 3, "swing keeps 3 attacks (%d)", R.gate_up[SEQ_BASS].n);
+
     /* Voice mute: no gates at all. */
     seq_init(&S, 8);
     seq_knobs(&S, SEQ_BASS)->density = 1.f;
@@ -651,6 +665,62 @@ static void test_gates_and_glide(void)
           "bass pattern switch waits for the bar (late %d)", late);
 }
 
+
+static void test_more_knobs(void)
+{
+    /* Loop length 3: a note on step 1 comes back every 3 16ths. */
+    seq_init(&S, 11);
+    locked_bass(&S);
+    set_lock(&S, 0, true, 8, false, 0);
+    seq_knobs(&S, SEQ_BASS)->steps = 3;
+    rec_clear();
+    seq_process(&S, 0, NULL);
+    seq_play(&S);
+    run(&S, 0, 800, 0, 0, 0);
+    CHECK(R.gate_up[SEQ_BASS].n == 3 && has_near(&R.gate_up[SEQ_BASS], 375, 1.5)
+              && has_near(&R.gate_up[SEQ_BASS], 750, 1.5),
+          "3-step loop (%d)", R.gate_up[SEQ_BASS].n);
+
+    /* Division 2: steps are 8ths. */
+    seq_init(&S, 11);
+    locked_bass(&S);
+    set_lock(&S, 0, true, 8, false, 0);
+    set_lock(&S, 1, true, 8, false, 1);
+    seq_knobs(&S, SEQ_BASS)->steps = 2;
+    seq_knobs(&S, SEQ_BASS)->div   = 2;
+    rec_clear();
+    seq_process(&S, 0, NULL);
+    seq_play(&S);
+    run(&S, 0, 600, 0, 0, 0);
+    CHECK(R.gate_up[SEQ_BASS].n == 3 && has_near(&R.gate_up[SEQ_BASS], 250, 1.5)
+              && has_near(&R.gate_up[SEQ_BASS], 500, 1.5),
+          "8th-note steps (%d)", R.gate_up[SEQ_BASS].n);
+    CHECK(has_near(&R.gate_down[SEQ_BASS], 125, 1.5), "8th step, half gate = 125 ms");
+
+    /* Chords that last 2 bars. */
+    seq_init(&S, 11);
+    S.prog.count         = 2;
+    S.prog.chord[0].bars = 2;
+    S.prog.chord[1].bars = 1;
+    S.pos = SEQ_BAR + 1.0;
+    CHECK(seq_chord_index(&S) == 0, "2-bar chord still playing in bar 2");
+    S.pos = 2.0 * SEQ_BAR + 1.0;
+    CHECK(seq_chord_index(&S) == 1, "next chord in bar 3");
+    S.pos = 3.0 * SEQ_BAR + 1.0;
+    CHECK(seq_chord_index(&S) == 0, "progression loops after 3 bars");
+
+    /* Sevenths: chord tone index 3 is the 7th. */
+    seq_init(&S, 11);
+    locked_bass(&S);
+    S.prog.tones = 4;
+    S.prog.root  = 0;
+    S.prog.scale = SEQ_SCALE_MINOR;
+    set_lock(&S, 0, true, 8, false, 3);
+    S.pos = 1.0;
+    int note = (int)seq_step_note(&S, SEQ_BASS, 0);
+    CHECK(note % 12 == 10, "minor 7th chord tone (pc %d)", note % 12);
+}
+
 int main(void)
 {
     test_scales();
@@ -663,6 +733,7 @@ int main(void)
     test_external_clock();
     test_drums();
     test_gates_and_glide();
+    test_more_knobs();
     printf("%d checks, %d failed\n", g_checks, g_fails);
     return g_fails ? 1 : 0;
 }
