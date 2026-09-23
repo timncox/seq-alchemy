@@ -299,7 +299,7 @@ void seq_init(seq_t *s, uint32_t seed)
     }
 
     s->base_octave[SEQ_BASS] = 1;
-    s->base_octave[SEQ_LEAD] = 3;
+    s->base_octave[SEQ_LEAD] = 2;
 
     const seq_knobs_t kb = {.density = 0.6f, .length = 0.4f, .slide = 0.2f,
                             .jump = 0.15f, .tone_bias = 0.1f, .swing = 1.0f,
@@ -417,7 +417,9 @@ static void start_note(seq_t *s, int v, long g, double start, uint32_t now_us)
     int    div  = p->knobs.div ? p->knobs.div : 1;
     double tpsv = (double)SEQ_TPS * div;
     float  note = note_for(s, v, st, chord_at(&s->prog, start));
-    bool   holding = vs->gate && vs->gate_off > start;
+    /* Legato only when the note before was a real tie (longer than its step);
+     * a full-step note whose gate merely overlaps because of swing is not. */
+    bool   holding = vs->gate && vs->tied && vs->gate_off > start;
 
     if(st.slide && vs->gate)
     {
@@ -441,6 +443,7 @@ static void start_note(seq_t *s, int v, long g, double start, uint32_t now_us)
         }
     }
     vs->gate     = true;
+    vs->tied     = st.len > 16;
     vs->gate_off = start + tpsv * st.len / 16.0;
 
     /* A slide on the NEXT step holds this gate into it, as on a 303: the
