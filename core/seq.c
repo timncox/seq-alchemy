@@ -250,6 +250,209 @@ void seq_voice_copy(seq_t *s, int v, int from, int to)
     s->pat[v][to] = s->pat[v][from];
 }
 
+/* ---------------------------------------------------------------- drum generator */
+
+bool seq_euclid(int hits, int n, int rot, int k)
+{
+    if(n < 1 || hits < 1)
+        return false;
+    if(hits >= n)
+        return true;
+    int i = ((k - rot) % n + n) % n;
+    /* Bresenham form: the same set as Bjorklund, first hit on step 0 */
+    return (i * hits) % n < hits;
+}
+
+/* Per-drum rotations for EUCLID 1-4 (kick, snare, hat, perc), in 16ths:
+ * snare 4 puts E(2,16) on 2 and 4, hat 2 puts E(4,16) on the off-beats. */
+static const int8_t kEuclidRot[4][SEQ_DRUMS] = {
+    {0, 4, 2, 3},
+    {0, 4, 0, 6},
+    {0, 2, 1, 5},
+    {0, 6, 3, 1},
+};
+
+/* Where each drum's steps sit on the amount knob: a step of a class plays
+ * once the amount passes lo + u * span, u being its fixed number. The
+ * bands overlap a little, so the beat fills first, then the 8ths, then
+ * the 16ths, and lo + span <= 1 so a full knob fills the bar. */
+static void drum_band(int d, int k, float *lo, float *span)
+{
+    static const float kBand[SEQ_DRUMS][3][2] = {
+        /* strong        medium        rest */
+        {{0.f, .30f}, {.25f, .40f}, {.45f, .55f}}, /* kick: beats, 8ths, 16ths */
+        {{0.f, .25f}, {.30f, .50f}, {.45f, .55f}}, /* snare: 2 and 4, 8ths, 16ths */
+        {{0.f, .30f}, {.20f, .40f}, {.40f, .60f}}, /* hat: off-beats, 8ths, 16ths */
+        {{0.f, 1.f}, {0.f, 1.f}, {0.f, 1.f}},      /* perc: anywhere */
+    };
+    int cls;
+    switch(d)
+    {
+        case SEQ_KICK: cls = k % 4 == 0 ? 0 : (k % 2 == 0 ? 1 : 2); break;
+        case SEQ_SNARE: cls = k % 8 == 4 ? 0 : (k % 2 == 0 ? 1 : 2); break;
+        case SEQ_HAT: cls = k % 4 == 2 ? 0 : (k % 2 == 0 ? 1 : 2); break;
+        default: cls = 0; break;
+    }
+    *lo   = kBand[d][cls][0];
+    *span = kBand[d][cls][1];
+}
+
+static bool drum_generated(const seq_drums_t *dr, int d, int k)
+{
+    const float amt = clamp01(dr->gen[d]);
+    if(amt <= 0.f)
+        return false;
+    const int style = dr->style % SEQ_DSTYLE_COUNT;
+    const int n     = dr->steps[d] ? dr->steps[d] : 16;
+    if(style >= SEQ_DSTYLE_EUCLID1)
+    {
+        const int hits = (int)(amt * (float)n + 0.5f);
+        return seq_euclid(hits, n, kEuclidRot[style - SEQ_DSTYLE_EUCLID1][d], k);
+    }
+    const uint32_t seed = mix32(0xD5A10000u + (uint32_t)style * 0x10000u
+                                + (uint32_t)d * 0x100u + (uint32_t)k);
+    float lo, span;
+    drum_band(d, k % 16, &lo, &span);
+    return lo + unit(seed, F_HIT) * span < amt;
+}
+
+seq_drums_t *seq_drums(seq_t *s) { return &s->drums[s->drum_slot]; }
+
+int seq_drum_prob(const seq_t *s, int d, int k, bool *generated)
+{
+    if(generated)
+        *generated = false;
+    if(d < 0 || d >= SEQ_DRUMS || k < 0 || k >= SEQ_MAX_STEPS)
+        return 0;
+    const seq_drums_t *dr = &s->drums[s->drum_slot];
+    const int          p  = dr->prob[d][k];
+    if(p < 4 && drum_generated(dr, d, k))
+    {
+        if(generated)
+            *generated = p == 0;
+        return 4;
+    }
+    return p;
+}
+
+/* ---------------------------------------------------------------- drum text */
+
+/* Case-insensitive: is the n-character word at w exactly kw? */
+static bool word_is(const char *w, int n, const char *kw)
+{
+    int i = 0;
+    while(i < n && kw[i] && (w[i] | 0x20) == kw[i])
+        i++;
+    return i == n && kw[i] == 0;
+}
+
+static int drum_name(const char *w, int n)
+{
+    static const char *const kNames[SEQ_DRUMS] = {"kick", "snare", "hat", "perc"};
+    for(int d = 0; d < SEQ_DRUMS; d++)
+        if(word_is(w, n, kNames[d]))
+            return d;
+    return -1;
+}
+
+/* One pass; with dst NULL it only checks. */
+static int drums_pass(seq_drums_t *dst, const char *t, size_t len, bool *named)
+{
+    int    slot = 0, written = 0;
+    bool   any_line = false;
+    size_t i = 0;
+    while(i < len)
+    {
+        size_t e = i;
+        while(e < len && t[e] != '\n' && t[e] != '\r')
+            e++;
+        /* trim, drop a comment */
+        size_t a = i, b = e;
+        for(size_t j = a; j < b; j++)
+            if(t[j] == '#')
+            {
+                b = j;
+                break;
+            }
+        while(a < b && (t[a] == ' ' || t[a] == '\t'))
+            a++;
+        while(b > a && (t[b - 1] == ' ' || t[b - 1] == '\t'))
+            b--;
+        i = e + 1;
+        if(a == b)
+            continue;
+        size_t w = a;
+        while(w < b && t[w] != ' ' && t[w] != '\t')
+            w++;
+        const int wl = (int)(w - a);
+        if(word_is(t + a, wl, "pattern"))
+        {
+            /* "pattern N" */
+            int n = 0, digits = 0;
+            for(size_t j = w; j < b; j++)
+            {
+                if(t[j] == ' ' || t[j] == '\t')
+                    continue;
+                if(t[j] < '0' || t[j] > '9' || digits > 2)
+                    return -1;
+                n = n * 10 + (t[j] - '0');
+                digits++;
+            }
+            if(!digits || n < 1 || n > SEQ_DRUM_SLOTS)
+                return -1;
+            slot = n - 1;
+            continue;
+        }
+        const int d = drum_name(t + a, wl);
+        if(d < 0)
+            return -1;
+        uint8_t prob[SEQ_MAX_STEPS];
+        int     n = 0;
+        for(size_t j = w; j < b; j++)
+        {
+            const char ch = t[j];
+            int        p;
+            if(ch == ' ' || ch == '\t' || ch == '|')
+                continue;
+            if(ch == 'x' || ch == 'X') p = 4;
+            else if(ch >= '1' && ch <= '4') p = ch - '0';
+            else if(ch == '.' || ch == '-' || ch == '0') p = 0;
+            else return -1;
+            if(n >= SEQ_MAX_STEPS)
+                return -1;
+            prob[n++] = (uint8_t)p;
+        }
+        if(n == 0)
+            return -1;
+        any_line = true;
+        if(!named[slot])
+        {
+            named[slot] = true;
+            written++;
+            if(dst)
+            {
+                dst[slot].gen[0] = dst[slot].gen[1] = dst[slot].gen[2] = dst[slot].gen[3] = 0.f;
+            }
+        }
+        if(dst)
+        {
+            memset(dst[slot].prob[d], 0, sizeof dst[slot].prob[d]);
+            memcpy(dst[slot].prob[d], prob, (size_t)n);
+            dst[slot].steps[d] = (uint8_t)n;
+        }
+    }
+    return any_line ? written : 0;
+}
+
+int seq_drums_parse(seq_t *s, const char *text, size_t len)
+{
+    bool named[SEQ_DRUM_SLOTS] = {false};
+    if(drums_pass(NULL, text, len, named) < 0)
+        return -1;
+    memset(named, 0, sizeof named);
+    return drums_pass(s->drums, text, len, named);
+}
+
 void seq_drum_queue(seq_t *s, int slot)
 {
     if(slot >= 0 && slot < SEQ_DRUM_SLOTS)
@@ -476,7 +679,7 @@ static void fire_drum(seq_t *s, int d, long g, uint32_t now_us)
     int steps = dr->steps[d] ? dr->steps[d] : 16;
     int k     = (int)(g % steps);
     s->drum_step[d] = k;
-    int p = dr->prob[d][k];
+    int p = seq_drum_prob(s, d, k, NULL);
     if(p == 0 || s->drum_mute[d])
         return;
     if(p < 4 && (int)(rng_next(s) % 4) >= p)
@@ -696,6 +899,9 @@ static size_t state_io(seq_t *s, cur_t *c)
     {
         io(c, s->drums[sl].prob, sizeof s->drums[sl].prob);
         io(c, s->drums[sl].steps, sizeof s->drums[sl].steps);
+        for(int d = 0; d < SEQ_DRUMS; d++)
+            io(c, &s->drums[sl].gen[d], 4);
+        io(c, &s->drums[sl].style, 1);
     }
     io(c, &s->prog.root, 1);
     io(c, &s->prog.scale, 1);
@@ -718,6 +924,7 @@ static size_t state_io(seq_t *s, cur_t *c)
     }
     io(c, &s->drum_slot, 1);
     io(c, s->drum_mute, sizeof s->drum_mute);
+    io(c, &s->drums_file_crc, 4);
     return c->n;
 }
 
@@ -768,7 +975,10 @@ static void state_sanitize(seq_t *s)
             for(int i = 0; i < SEQ_MAX_STEPS; i++)
                 if(s->drums[sl].prob[d][i] > 4) s->drums[sl].prob[d][i] = 4;
             s->drums[sl].steps[d] = (uint8_t)iclamp(s->drums[sl].steps[d], 1, SEQ_MAX_STEPS);
+            s->drums[sl].gen[d]   = fclamp(s->drums[sl].gen[d], 0.f, 1.f);
         }
+    for(int sl = 0; sl < SEQ_DRUM_SLOTS; sl++)
+        s->drums[sl].style %= SEQ_DSTYLE_COUNT;
     s->prog.root  = (uint8_t)(s->prog.root % 12);
     s->prog.scale = (uint8_t)(s->prog.scale % SEQ_SCALE_COUNT);
     s->prog.tones = (uint8_t)iclamp(s->prog.tones, 3, 4);

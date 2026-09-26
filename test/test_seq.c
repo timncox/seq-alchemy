@@ -770,6 +770,9 @@ static void test_persistence(void)
     seq_voice_queue(&a, SEQ_BASS, 3);
     seq_drum_set(&a, SEQ_SNARE, 5, 3);
     a.drums[0].steps[SEQ_HAT] = 7;
+    a.drums[1].gen[SEQ_SNARE] = 0.4f;
+    a.drums[1].style = SEQ_DSTYLE_EUCLID3;
+    a.drums_file_crc = 0xC0FFEEu;
     a.prog.root = 2;
     a.prog.count = 3;
     a.prog.chord[2].bars = 2;
@@ -801,6 +804,8 @@ static void test_persistence(void)
     CHECK(b.pat[SEQ_LEAD][0].locked, "lock kept");
     CHECK(b.v[SEQ_LEAD].mute && b.drum_mute[SEQ_PERC], "mutes kept");
     CHECK(b.bpm == 97.f && b.clock_ppqn == 24 && b.glide_ms == 120, "globals kept");
+    CHECK(b.drums[1].gen[SEQ_SNARE] == 0.4f && b.drums[1].style == SEQ_DSTYLE_EUCLID3
+          && b.drums_file_crc == 0xC0FFEEu, "drum generator and file CRC kept");
     CHECK(!b.running, "a read leaves the transport stopped");
 
     /* Same seeds, knobs and locks: the bass plays the same line after the
@@ -873,6 +878,131 @@ static void test_persistence(void)
     CHECK(sane, "garbage state plays inside 0..5 V");
 }
 
+/* ------------------------------------------------------------ drum generator */
+
+static void test_drum_generator(void)
+{
+    /* Euclid: the classic ones */
+    const char *tres = "x..x..x.";
+    bool ok = true;
+    for(int k = 0; k < 8; k++)
+        ok &= seq_euclid(3, 8, 0, k) == (tres[k] == 'x');
+    CHECK(ok, "E(3,8) is the tresillo x..x..x.");
+    ok = true;
+    for(int k = 0; k < 16; k++)
+        ok &= seq_euclid(2, 16, 4, k) == (k == 4 || k == 12);
+    CHECK(ok, "E(2,16) rotated 4 is the backbeat");
+    for(int h = 0; h <= 16; h++)
+    {
+        int n = 0;
+        for(int k = 0; k < 16; k++)
+            n += seq_euclid(h, 16, 3, k);
+        CHECK(n == h, "E(%d,16) has %d hits (%d)", h, h, n);
+    }
+
+    /* GEN: raising the amount only adds hits; the kick starts on the beat */
+    seq_init(&S, 3);
+    clear_drums(&S);
+    for(int st = SEQ_DSTYLE_GEN1; st <= SEQ_DSTYLE_GEN4; st++)
+    {
+        seq_drums(&S)->style = (uint8_t)st;
+        for(int d = 0; d < SEQ_DRUMS; d++)
+        {
+            bool prev[16] = {false}, mono = true;
+            for(int a = 0; a <= 20; a++)
+            {
+                seq_drums(&S)->gen[d] = (float)a / 20.f;
+                for(int k = 0; k < 16; k++)
+                {
+                    bool on = seq_drum_prob(&S, d, k, NULL) == 4;
+                    mono &= !(prev[k] && !on);
+                    prev[k] = on;
+                }
+            }
+            int all = 0;
+            for(int k = 0; k < 16; k++)
+                all += prev[k];
+            CHECK(mono, "style %d drum %d: more amount only adds hits", st, d);
+            CHECK(all == 16, "style %d drum %d: full amount fills the bar", st, d);
+            seq_drums(&S)->gen[d] = 0.f;
+        }
+    }
+    seq_drums(&S)->style = SEQ_DSTYLE_GEN1;
+    seq_drums(&S)->gen[SEQ_KICK] = 0.3f;
+    int on_beat = 0, off_beat = 0;
+    for(int k = 0; k < 16; k++)
+        if(seq_drum_prob(&S, SEQ_KICK, k, NULL))
+            *(k % 4 == 0 ? &on_beat : &off_beat) += 1;
+    CHECK(on_beat >= 2 && off_beat <= on_beat, "a light kick sits on the beat (%d on, %d off)",
+          on_beat, off_beat);
+
+    /* EUCLID fires on the jacks: E(4,16) kick, and it wins over a 25 % step */
+    seq_init(&S, 3);
+    quiet_voices(&S);
+    clear_drums(&S);
+    seq_drums(&S)->style = SEQ_DSTYLE_EUCLID1;
+    seq_drums(&S)->gen[SEQ_KICK] = 0.25f;
+    seq_drum_set(&S, SEQ_KICK, 4, 1);
+    bool gen;
+    CHECK(seq_drum_prob(&S, SEQ_KICK, 4, &gen) == 4 && !gen, "generated beats a programmed 25 %%");
+    CHECK(seq_drum_prob(&S, SEQ_KICK, 8, &gen) == 4 && gen, "a generated-only hit says so");
+    seq_play(&S);
+    rec_clear();
+    run(&S, 0, 2000, 0, 0, 0); /* one bar at 120 */
+    CHECK(R.trig[SEQ_KICK].n == 4, "E(4,16) kick: 4 triggers in a bar (%d)", R.trig[SEQ_KICK].n);
+    for(int i = 0; i < 4; i++)
+        CHECK(has_near(&R.trig[SEQ_KICK], 500.0 * i, 1.5), "kick on beat %d", i + 1);
+    seq_drum_mute(&S, SEQ_KICK, true);
+    rec_clear();
+    run(&S, 2000, 4000, 0, 0, 0);
+    CHECK(R.trig[SEQ_KICK].n == 0, "a mute silences generated hits too");
+}
+
+/* ------------------------------------------------------------ drum text */
+
+static void test_drum_text(void)
+{
+    seq_init(&S, 3);
+    const char *txt =
+        "# a comment\n"
+        "pattern 3\n"
+        "kick  x...x...x...x...\n"
+        "snare ....x... ....x...   # spaces are ignored\n"
+        "HAT   ..x.3.x.2.x.1.x.\n"
+        "perc  x..x..x..\n"
+        "\n"
+        "pattern 16\r\n"
+        "kick x\r\n";
+    seq_drums_t before1 = S.drums[0];
+    S.drums[2].gen[SEQ_HAT] = 0.7f;
+    int n = seq_drums_parse(&S, txt, strlen(txt));
+    CHECK(n == 2, "two patterns written (%d)", n);
+    const seq_drums_t *d3 = &S.drums[2];
+    CHECK(d3->prob[SEQ_KICK][0] == 4 && d3->prob[SEQ_KICK][1] == 0 && d3->prob[SEQ_KICK][12] == 4,
+          "kick line read");
+    CHECK(d3->prob[SEQ_SNARE][4] == 4 && d3->prob[SEQ_SNARE][12] == 4 && d3->steps[SEQ_SNARE] == 16,
+          "spaces inside a line ignored");
+    CHECK(d3->prob[SEQ_HAT][4] == 3 && d3->prob[SEQ_HAT][8] == 2 && d3->prob[SEQ_HAT][12] == 1,
+          "chances read, name case-insensitive");
+    CHECK(d3->steps[SEQ_PERC] == 9, "a line's length is the loop (%d)", d3->steps[SEQ_PERC]);
+    CHECK(d3->gen[SEQ_HAT] == 0.f, "a named pattern's generator is switched off");
+    CHECK(S.drums[15].steps[SEQ_KICK] == 1 && S.drums[15].prob[SEQ_KICK][0] == 4, "CRLF and a 1-step loop");
+    CHECK(memcmp(&S.drums[0], &before1, sizeof before1) == 0, "unnamed patterns untouched");
+
+    /* nonsense changes nothing */
+    seq_drums_t snap[SEQ_DRUM_SLOTS];
+    memcpy(snap, S.drums, sizeof snap);
+    const char *bad[] = {"pattern 3\nkick x..q\n", "pattern 17\nkick x\n", "cowbell x...\n",
+                         "pattern 1\nkick\n"};
+    for(int i = 0; i < 4; i++)
+        CHECK(seq_drums_parse(&S, bad[i], strlen(bad[i])) == -1, "bad text %d refused", i);
+    CHECK(memcmp(snap, S.drums, sizeof snap) == 0, "refused text changed nothing");
+    char long_line[128] = "kick ";
+    memset(long_line + 5, 'x', 65);
+    long_line[70] = 0;
+    CHECK(seq_drums_parse(&S, long_line, strlen(long_line)) == -1, "65 steps refused");
+}
+
 int main(void)
 {
     test_scales();
@@ -887,6 +1017,8 @@ int main(void)
     test_gates_and_glide();
     test_more_knobs();
     test_persistence();
+    test_drum_generator();
+    test_drum_text();
     printf("%d checks, %d failed\n", g_checks, g_fails);
     return g_fails ? 1 : 0;
 }
