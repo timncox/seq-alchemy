@@ -32,6 +32,11 @@ Gotchas:
   buffers go in AXI SRAM (`.axi_bss`) or SDRAM (`DSY_SDRAM_BSS`).
 - **Launchpad mode has no HostLink**, so no `program-live`; hold B1 at
   power-up for Mac mode once, or use the picker.
+- Drums: programmed steps + a generator per drum pattern (GEN 1-4
+  thresholds, EUCLID 1-4) on the DRUMS pot page; `/seq/drums.txt` is
+  imported at power-up only when its CRC changed (`drums_file_crc`), and
+  the file stays on the card. The manual (`docs/`, `python3 docs/build.py`)
+  ports the generators to JS: keep them in step with seq.c.
 - Persistence is `seq_state_write/read` (field by field, clamped on read);
   bump `SEQ_STATE_VERSION` when the layout changes.
 
