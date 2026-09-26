@@ -721,6 +721,132 @@ static void test_more_knobs(void)
     CHECK(note % 12 == 10, "minor 7th chord tone (pc %d)", note % 12);
 }
 
+/* ------------------------------------------------------------ persistence */
+
+static uint8_t g_blob[SEQ_STATE_BYTES], g_blob2[SEQ_STATE_BYTES];
+
+static void test_persistence(void)
+{
+    static seq_t a, b;
+    CHECK(seq_state_used() <= SEQ_STATE_BYTES, "layout fits: %zu of %d",
+          seq_state_used(), SEQ_STATE_BYTES);
+
+    /* Make a state that differs from a fresh init everywhere it can. */
+    seq_init(&a, 7);
+    seq_roll(&a, SEQ_BASS);
+    seq_mutate(&a, SEQ_LEAD, 0.5f);
+    seq_knobs(&a, SEQ_BASS)->density = 0.9f;
+    seq_knobs(&a, SEQ_BASS)->octave  = -2;
+    seq_knobs(&a, SEQ_LEAD)->steps   = 12;
+    seq_knobs(&a, SEQ_LEAD)->div     = 2;
+    seq_lock(&a, SEQ_LEAD, true);
+    seq_voice_copy(&a, SEQ_BASS, 0, 3);
+    seq_voice_queue(&a, SEQ_BASS, 3);
+    seq_drum_set(&a, SEQ_SNARE, 5, 3);
+    a.drums[0].steps[SEQ_HAT] = 7;
+    a.prog.root = 2;
+    a.prog.count = 3;
+    a.prog.chord[2].bars = 2;
+    a.bpm = 97.f;
+    a.swing = 0.6f;
+    a.glide_ms = 120;
+    a.clock_ppqn = 24;
+    seq_voice_mute(&a, SEQ_LEAD, true);
+    seq_drum_mute(&a, SEQ_PERC, true);
+    /* let the queued bass slot take over at the bar */
+    seq_play(&a);
+    rec_clear();
+    run(&a, 0, 2100, 0, 0, 0);
+    seq_stop(&a);
+    CHECK(a.v[SEQ_BASS].slot == 3, "queued slot took over");
+
+    seq_state_write(&a, g_blob);
+    seq_init(&b, 999);
+    CHECK(seq_state_read(&b, g_blob), "read accepts its own blob");
+    seq_state_write(&b, g_blob2);
+    {
+        int at = -1;
+        for(int i = 0; i < SEQ_STATE_BYTES && at < 0; i++)
+            if(g_blob[i] != g_blob2[i]) at = i;
+        CHECK(at < 0, "write(read(x)) == x (first diff at byte %d: %d vs %d)", at,
+              at >= 0 ? g_blob[at] : 0, at >= 0 ? g_blob2[at] : 0);
+    }
+    CHECK(b.v[SEQ_BASS].slot == 3 && b.v[SEQ_BASS].queued == 3, "slot kept, nothing queued");
+    CHECK(b.pat[SEQ_LEAD][0].locked, "lock kept");
+    CHECK(b.v[SEQ_LEAD].mute && b.drum_mute[SEQ_PERC], "mutes kept");
+    CHECK(b.bpm == 97.f && b.clock_ppqn == 24 && b.glide_ms == 120, "globals kept");
+    CHECK(!b.running, "a read leaves the transport stopped");
+
+    /* Same seeds, knobs and locks: the bass plays the same line after the
+     * reload. (The lead is muted; drum dice use the runtime rng, not kept.) */
+    bool same = true;
+    for(int v = 0; v < SEQ_VOICES; v++)
+        for(int k = 0; k < SEQ_MAX_STEPS; k++)
+        {
+            seq_step_t x = seq_step(&a, v, k), y = seq_step(&b, v, k);
+            same &= x.on == y.on && x.len == y.len && x.index == y.index
+                    && x.slide == y.slide && x.jump == y.jump;
+            same &= seq_step_note(&a, v, k) == seq_step_note(&b, v, k);
+        }
+    CHECK(same, "reloaded steps and notes match");
+    a.have_last = false; /* both start their clocks at the first process */
+    seq_play(&a);
+    seq_play(&b);
+    seq_out_t oa, ob;
+    int diff = 0;
+    for(uint32_t ms = 0; ms < 4000; ms++)
+    {
+        seq_process(&a, 2100000u + ms * 1000u, &oa); /* a ran to 2.1 s */
+        seq_process(&b, ms * 1000u, &ob);
+        /* pitch while a note sounds; before the first one it is whatever
+         * the voice last played, which is runtime, not kept */
+        bool d = oa.gate[SEQ_BASS] != ob.gate[SEQ_BASS]
+                 || (oa.gate[SEQ_BASS] && fabsf(oa.pitch[SEQ_BASS] - ob.pitch[SEQ_BASS]) > 1e-4f);
+        if(d && !diff)
+            printf("  first diff at %u ms: gate %d/%d pitch %f/%f\n", ms,
+                   oa.gate[SEQ_BASS], ob.gate[SEQ_BASS], oa.pitch[SEQ_BASS], ob.pitch[SEQ_BASS]);
+        diff += d;
+    }
+    CHECK(diff == 0, "reloaded bass plays identically (%d ms differ)", diff);
+
+    /* A wrong version changes nothing. */
+    seq_init(&b, 5);
+    seq_state_write(&b, g_blob2);
+    g_blob[0] = SEQ_STATE_VERSION + 1;
+    CHECK(!seq_state_read(&b, g_blob), "wrong version refused");
+    seq_state_write(&b, g_blob);
+    CHECK(memcmp(g_blob, g_blob2, SEQ_STATE_BYTES) == 0, "refused read left state alone");
+
+    /* Garbage: clamped into range, and it still plays. */
+    uint32_t x = 12345u;
+    for(int i = 0; i < SEQ_STATE_BYTES; i++)
+    {
+        x = x * 1664525u + 1013904223u;
+        g_blob[i] = (uint8_t)(x >> 24);
+    }
+    g_blob[0] = SEQ_STATE_VERSION;
+    CHECK(seq_state_read(&b, g_blob), "garbage with the right version is read");
+    bool ok = b.bpm >= 30.f && b.bpm <= 300.f && b.swing >= 0.5f && b.swing <= 0.75f
+              && b.prog.count >= 1 && b.prog.count <= SEQ_MAX_CHORDS
+              && b.v[0].slot < SEQ_VOICE_SLOTS && b.drum_slot < SEQ_DRUM_SLOTS;
+    for(int v = 0; v < SEQ_VOICES; v++)
+    {
+        seq_knobs_t *k = seq_knobs(&b, v);
+        ok &= k->density >= 0.f && k->density <= 1.f && k->steps >= 1
+              && k->steps <= SEQ_MAX_STEPS && k->range >= 1 && k->range <= 3;
+    }
+    CHECK(ok, "garbage clamped into range");
+    seq_play(&b);
+    bool sane = true;
+    for(uint32_t ms = 0; ms < 3000; ms++)
+    {
+        seq_process(&b, ms * 1000u, &ob);
+        for(int v = 0; v < SEQ_VOICES; v++)
+            sane &= ob.pitch[v] >= 0.f && ob.pitch[v] <= 5.0001f;
+    }
+    CHECK(sane, "garbage state plays inside 0..5 V");
+}
+
 int main(void)
 {
     test_scales();
@@ -734,6 +860,7 @@ int main(void)
     test_drums();
     test_gates_and_glide();
     test_more_knobs();
+    test_persistence();
     printf("%d checks, %d failed\n", g_checks, g_fails);
     return g_fails ? 1 : 0;
 }

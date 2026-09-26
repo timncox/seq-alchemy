@@ -39,6 +39,7 @@
  */
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -219,6 +220,19 @@ void seq_drum_set(seq_t *s, int drum, int step, int prob);
 
 /* Where things are, for the Launchpad and the rings. */
 int seq_chord_index(const seq_t *s); /* chord playing now */
+
+/* Persistence. What a power cycle should keep -- the seeds, knobs, locks,
+ * drum patterns, progression, tempo and which slots are playing -- as a flat
+ * byte stream of SEQ_STATE_BYTES, field by field (never the struct, whose
+ * layout mixes in runtime state; undo is not kept). Reading clamps every
+ * field into range, so a corrupt blob makes an odd pattern, never a crash;
+ * a wrong version byte returns false and changes nothing. Reading stops the
+ * transport and clears the runtime state. */
+#define SEQ_STATE_VERSION 1
+#define SEQ_STATE_BYTES 15600
+void seq_state_write(const seq_t *s, uint8_t *out);
+bool seq_state_read(seq_t *s, const uint8_t *in);
+size_t seq_state_used(void); /* bytes of SEQ_STATE_BYTES in use */
 
 /* Scale and chord helpers (exposed for tests and the UI). */
 int seq_scale_len(int scale);
