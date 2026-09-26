@@ -16,7 +16,7 @@
 #include "alchemy/control/preset_capacity.h"
 #include "seq.h"
 
-/* The pager (3 pages x 6 pots) and the settings screen need a few hundred
+/* The pager (4 pages x 6 pots) and the settings screen need a few hundred
  * bytes on top; keep a comfortable margin under the hard slot ceiling. */
 static_assert(SEQ_STATE_BYTES + 2048u <= alchemy::kPresetBlobCapacity,
               "sequencer state no longer fits a preset slot");
@@ -33,5 +33,5 @@ struct SeqExtras : public alchemy::Serializable
 
     /* 'SEQ' + layout version. seq.h's SEQ_STATE_VERSION guards the stream
      * itself; bump the low byte here when the preset payload changes. */
-    uint32_t SchemaHash() const override { return 0x53455100u | 0x01u; }
+    uint32_t SchemaHash() const override { return 0x53455100u | 0x02u; }
 };
