@@ -292,9 +292,9 @@ void seq_init(seq_t *s, uint32_t seed)
     s->prog.tones = 3;
     s->prog.count = 4;
     const int8_t degs[4] = {0, 5, 2, 6};
-    for(int i = 0; i < 4; i++)
+    for(int i = 0; i < SEQ_MAX_CHORDS; i++) /* spare slots valid too */
     {
-        s->prog.chord[i].degree = degs[i];
+        s->prog.chord[i].degree = i < 4 ? degs[i] : 0;
         s->prog.chord[i].bars   = 1;
     }
 
@@ -606,4 +606,220 @@ void seq_process(seq_t *s, uint32_t now_us, seq_out_t *out)
         for(int d = 0; d < SEQ_DRUMS; d++)
             out->trig[d] = s->trig_on[d];
     }
+}
+
+/* ---------------------------------------------------------------- persistence */
+
+typedef struct {
+    uint8_t       *w;  /* writing, or NULL */
+    const uint8_t *r;  /* reading, or NULL */
+    size_t         n;  /* bytes so far */
+} cur_t;
+
+static void io(cur_t *c, void *p, size_t len)
+{
+    if(c->n + len > SEQ_STATE_BYTES) /* never: the tests pin the layout */
+        return;
+    if(c->w) memcpy(c->w + c->n, p, len);
+    else memcpy(p, c->r + c->n, len);
+    c->n += len;
+}
+
+static float fclamp(float x, float lo, float hi)
+{
+    if(!(x >= lo)) return lo; /* NaN lands here too */
+    return x > hi ? hi : x;
+}
+
+static int iclamp(int x, int lo, int hi) { return x < lo ? lo : (x > hi ? hi : x); }
+
+/* One pass over every kept field. On a write the fields are copied out of
+ * s; on a read into it, and clamped afterwards by state_sanitize(). */
+static size_t state_io(seq_t *s, cur_t *c)
+{
+    uint8_t ver = SEQ_STATE_VERSION;
+    io(c, &ver, 1);
+    for(int v = 0; v < SEQ_VOICES; v++)
+        for(int sl = 0; sl < SEQ_VOICE_SLOTS; sl++)
+        {
+            seq_pattern_t *p = &s->pat[v][sl];
+            seq_knobs_t   *k = &p->knobs;
+            io(c, p->seed, sizeof p->seed);
+            io(c, &k->density, 4);
+            io(c, &k->length, 4);
+            io(c, &k->slide, 4);
+            io(c, &k->jump, 4);
+            io(c, &k->tone_bias, 4);
+            io(c, &k->swing, 4);
+            io(c, &k->octave, 1);
+            io(c, &k->range, 1);
+            io(c, &k->steps, 1);
+            io(c, &k->div, 1);
+            io(c, &p->locked, 1);
+            uint8_t locked; /* raw: a read has not been fixed up yet */
+            memcpy(&locked, &p->locked, 1);
+            if(c->w && !locked)
+            {
+                /* seq_lock() refills the steps when it locks; an unlocked
+                 * pattern's leftovers are written as zeros */
+                c->n += SEQ_MAX_STEPS * 6;
+                continue;
+            }
+            for(int i = 0; i < SEQ_MAX_STEPS; i++)
+            {
+                seq_step_t *st = &p->lock[i];
+                io(c, &st->on, 1);
+                io(c, &st->slide, 1);
+                io(c, &st->scale, 1);
+                io(c, &st->jump, 1);
+                io(c, &st->index, 1);
+                io(c, &st->len, 1);
+            }
+        }
+    for(int sl = 0; sl < SEQ_DRUM_SLOTS; sl++)
+    {
+        io(c, s->drums[sl].prob, sizeof s->drums[sl].prob);
+        io(c, s->drums[sl].steps, sizeof s->drums[sl].steps);
+    }
+    io(c, &s->prog.root, 1);
+    io(c, &s->prog.scale, 1);
+    io(c, &s->prog.tones, 1);
+    io(c, &s->prog.count, 1);
+    for(int i = 0; i < SEQ_MAX_CHORDS; i++)
+    {
+        io(c, &s->prog.chord[i].degree, 1);
+        io(c, &s->prog.chord[i].bars, 1);
+    }
+    io(c, s->base_octave, sizeof s->base_octave);
+    io(c, &s->bpm, 4);
+    io(c, &s->swing, 4);
+    io(c, &s->glide_ms, 2);
+    io(c, &s->clock_ppqn, 1);
+    for(int v = 0; v < SEQ_VOICES; v++)
+    {
+        io(c, &s->v[v].slot, 1);
+        io(c, &s->v[v].mute, 1);
+    }
+    io(c, &s->drum_slot, 1);
+    io(c, s->drum_mute, sizeof s->drum_mute);
+    return c->n;
+}
+
+/* bools read from bytes: anything but 0/1 is not a valid _Bool */
+static void fix_bool(bool *b)
+{
+    uint8_t x;
+    memcpy(&x, b, 1);
+    *b = x != 0;
+}
+
+static void state_sanitize(seq_t *s)
+{
+    for(int v = 0; v < SEQ_VOICES; v++)
+        for(int sl = 0; sl < SEQ_VOICE_SLOTS; sl++)
+        {
+            seq_pattern_t *p = &s->pat[v][sl];
+            seq_knobs_t   *k = &p->knobs;
+            k->density   = fclamp(k->density, 0.f, 1.f);
+            k->length    = fclamp(k->length, 0.f, 1.f);
+            k->slide     = fclamp(k->slide, 0.f, 1.f);
+            k->jump      = fclamp(k->jump, 0.f, 1.f);
+            k->tone_bias = fclamp(k->tone_bias, 0.f, 1.f);
+            k->swing     = fclamp(k->swing, 0.f, 1.f);
+            k->octave    = (int8_t)iclamp(k->octave, -3, 3);
+            k->range     = (uint8_t)iclamp(k->range, 1, 3);
+            k->steps     = (uint8_t)iclamp(k->steps, 1, SEQ_MAX_STEPS);
+            k->div       = (uint8_t)iclamp(k->div, 1, 4);
+            fix_bool(&p->locked);
+            p->has_undo = false;
+            if(!p->locked) /* seq_lock() refills it; keep the blob stable */
+                memset(p->lock, 0, sizeof p->lock);
+            else
+            for(int i = 0; i < SEQ_MAX_STEPS; i++)
+            {
+                seq_step_t *st = &p->lock[i];
+                fix_bool(&st->on);
+                fix_bool(&st->slide);
+                fix_bool(&st->scale);
+                st->jump  = (int8_t)iclamp(st->jump, -1, 1);
+                st->index = (uint8_t)iclamp(st->index, 0, 15);
+                st->len   = (uint8_t)iclamp(st->len, 2, 32);
+            }
+        }
+    for(int sl = 0; sl < SEQ_DRUM_SLOTS; sl++)
+        for(int d = 0; d < SEQ_DRUMS; d++)
+        {
+            for(int i = 0; i < SEQ_MAX_STEPS; i++)
+                if(s->drums[sl].prob[d][i] > 4) s->drums[sl].prob[d][i] = 4;
+            s->drums[sl].steps[d] = (uint8_t)iclamp(s->drums[sl].steps[d], 1, SEQ_MAX_STEPS);
+        }
+    s->prog.root  = (uint8_t)(s->prog.root % 12);
+    s->prog.scale = (uint8_t)(s->prog.scale % SEQ_SCALE_COUNT);
+    s->prog.tones = (uint8_t)iclamp(s->prog.tones, 3, 4);
+    s->prog.count = (uint8_t)iclamp(s->prog.count, 1, SEQ_MAX_CHORDS);
+    for(int i = 0; i < SEQ_MAX_CHORDS; i++)
+    {
+        s->prog.chord[i].degree = (int8_t)iclamp(s->prog.chord[i].degree, -7, 13);
+        s->prog.chord[i].bars   = (uint8_t)iclamp(s->prog.chord[i].bars, 1, 8);
+    }
+    for(int v = 0; v < SEQ_VOICES; v++)
+        s->base_octave[v] = (uint8_t)iclamp(s->base_octave[v], 0, 4);
+    s->bpm      = fclamp(s->bpm, 30.f, 300.f);
+    s->swing    = fclamp(s->swing, 0.5f, 0.75f);
+    s->glide_ms = (uint16_t)iclamp(s->glide_ms, 0, 2000);
+    if(s->clock_ppqn != 1 && s->clock_ppqn != 2 && s->clock_ppqn != 4 && s->clock_ppqn != 24)
+        s->clock_ppqn = 4;
+    for(int v = 0; v < SEQ_VOICES; v++)
+    {
+        s->v[v].slot %= SEQ_VOICE_SLOTS;
+        s->v[v].queued = s->v[v].slot;
+        fix_bool(&s->v[v].mute);
+    }
+    s->drum_slot  %= SEQ_DRUM_SLOTS;
+    s->drum_queued = s->drum_slot;
+    for(int d = 0; d < SEQ_DRUMS; d++)
+        fix_bool(&s->drum_mute[d]);
+}
+
+void seq_state_write(const seq_t *s, uint8_t *out)
+{
+    memset(out, 0, SEQ_STATE_BYTES);
+    cur_t c = {out, NULL, 0};
+    state_io((seq_t *)s, &c); /* the write pass only reads s */
+}
+
+bool seq_state_read(seq_t *s, const uint8_t *in)
+{
+    if(in[0] != SEQ_STATE_VERSION)
+        return false;
+    seq_stop(s);
+    cur_t c = {NULL, in, 0};
+    state_io(s, &c);
+    state_sanitize(s);
+    /* runtime back to rest */
+    for(int v = 0; v < SEQ_VOICES; v++)
+    {
+        s->v[v].gate = s->v[v].tied = s->v[v].dip = false;
+        s->v[v].glide_rate = 0.f;
+        s->v[v].cur_step   = -1;
+    }
+    for(int d = 0; d < SEQ_DRUMS; d++)
+    {
+        s->trig_on[d]   = false;
+        s->drum_step[d] = -1;
+    }
+    s->ext = false;
+    s->edges = 0;
+    s->period_us = 0;
+    s->reset_pending = false;
+    s->pos = -START_EPS;
+    return true;
+}
+
+size_t seq_state_used(void)
+{
+    static seq_t   tmp;
+    static uint8_t scratch[SEQ_STATE_BYTES];
+    cur_t c = {scratch, NULL, 0};
+    return state_io(&tmp, &c);
 }
