@@ -347,14 +347,27 @@ static void rewind(seq_t *s)
 
 void seq_play(seq_t *s)
 {
+    s->hold = false;
+    if(s->ext)
+    {
+        /* Following J1: step one plays on the next edge, in time. */
+        s->reset_pending = true;
+        return;
+    }
     rewind(s);
     s->running = true;
 }
 
-void seq_stop(seq_t *s)
+static void halt(seq_t *s)
 {
     s->running = false;
     all_gates_off(s);
+}
+
+void seq_stop(seq_t *s)
+{
+    s->hold = true; /* clock edges no longer start it; seq_play() does */
+    halt(s);
 }
 
 static uint32_t ticks_per_edge(const seq_t *s)
@@ -367,9 +380,10 @@ void seq_clock_edge(seq_t *s, uint32_t now_us)
 {
     if(!s->ext)
     {
-        /* First edge: the external clock takes over and step one plays now. */
+        /* First edge: the external clock takes over and step one plays now
+         * (unless the player stopped it: then it only keeps time). */
         s->ext       = true;
-        s->running   = true;
+        s->running   = !s->hold;
         s->edges     = 0;
         s->period_us = 0;
         s->edge_us   = now_us;
@@ -380,7 +394,9 @@ void seq_clock_edge(seq_t *s, uint32_t now_us)
     uint32_t p = now_us - s->edge_us;
     s->period_us = s->period_us ? (s->period_us + p) / 2 : p;
     s->edge_us   = now_us;
-    s->running   = true;
+    if(s->hold)
+        return;
+    s->running = true;
     if(s->reset_pending)
     {
         s->reset_pending = false;
@@ -529,8 +545,8 @@ void seq_process(seq_t *s, uint32_t now_us, seq_out_t *out)
 
     if(s->ext && now_us - s->edge_us > SEQ_CLOCK_LOST_MS * 1000u)
     {
-        s->ext     = false;
-        seq_stop(s);
+        s->ext = false;
+        halt(s); /* not a player's stop: the next clock starts it again */
     }
 
     if(s->running)
@@ -792,7 +808,7 @@ bool seq_state_read(seq_t *s, const uint8_t *in)
 {
     if(in[0] != SEQ_STATE_VERSION)
         return false;
-    seq_stop(s);
+    halt(s); /* a load is not a player's stop */
     cur_t c = {NULL, in, 0};
     state_io(s, &c);
     state_sanitize(s);

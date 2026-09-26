@@ -170,6 +170,7 @@ typedef struct {
     int32_t  drum_step[SEQ_DRUMS];
 
     bool     running;
+    bool     hold;       /* stopped by the player: J1 edges keep time only */
     double   pos;        /* ticks since the transport started */
     uint32_t last_us;
     bool     have_last;
@@ -186,7 +187,11 @@ typedef struct {
 /* Setup. Everything starts stopped on internal clock at 120 BPM. */
 void seq_init(seq_t *s, uint32_t seed);
 
-/* Transport (internal clock). Play restarts from the top. */
+/* Transport. Play restarts from the top -- at once on the internal clock,
+ * on the next J1 edge when following one. Stop holds the transport until
+ * the next play, even while J1 keeps clocking (the clock is still
+ * measured). A clock that goes missing stops it too, but not as a hold:
+ * the next clock edge starts it again. */
 void seq_play(seq_t *s);
 void seq_stop(seq_t *s);
 
