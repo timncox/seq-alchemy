@@ -475,6 +475,32 @@ static void test_external_clock(void)
     CHECK(R.trig[SEQ_HAT].n == 5, "24 ppqn: 5 steps in 600 ms (%d)", R.trig[SEQ_HAT].n);
     CHECK(has_near(&R.trig[SEQ_HAT], 120.0, 1.5) && has_near(&R.trig[SEQ_HAT], 480.0, 1.5),
           "24 ppqn: steps on every 6th edge");
+
+    /* Stop while J1 keeps clocking: it stays stopped (the edges only keep
+     * time); play starts step one on the next edge. Kick on step 1 only. */
+    seq_init(&S, 1);
+    quiet_voices(&S);
+    clear_drums(&S);
+    seq_drum_set(&S, SEQ_KICK, 0, 4);
+    rec_clear();
+    run(&S, 0, 350, 100, 0, 10000);      /* edges at 0..300: kick at 0 */
+    seq_stop(&S);
+    run(&S, 350, 1050, 100, 0, 10000);   /* edges keep coming */
+    CHECK(!S.running && S.ext, "a stop holds against the clock");
+    CHECK(R.trig[SEQ_KICK].n == 1, "nothing plays while held (%d)", R.trig[SEQ_KICK].n);
+    seq_play(&S);
+    run(&S, 1050, 1150, 100, 0, 10000);  /* edge at 1100 = step one */
+    CHECK(S.running, "play under the clock runs");
+    CHECK(has_near(&R.trig[SEQ_KICK], 1100.0, 1.5), "play -> next edge is step one");
+
+    /* A clock that went missing is not a player's stop: the next edge
+     * starts it again. */
+    run(&S, 1150, 3500, 0, 0, 0);
+    CHECK(!S.running && !S.ext, "clock lost -> stopped");
+    rec_clear();
+    run(&S, 3500, 3600, 100, 3500, 10000);
+    CHECK(S.running && has_near(&R.trig[SEQ_KICK], 3500.0, 1.5),
+          "clock back -> starts again from step one");
 }
 
 static void test_drums(void)
