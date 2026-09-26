@@ -8,7 +8,8 @@
  * The engine is core/seq.c (HAL-free, native tests in test/); this file is
  * the panel, the jacks and the controllers.
  *
- *   BASS / LEAD  DENSITY · LENGTH · SLIDE · JUMP · TONES · OCTAVE   (B1 flips)
+ *   BASS / LEAD  DENSITY · LENGTH · SLIDE · JUMP · TONES · OCTAVE   (B1 cycles)
+ *   DRUMS        KICK · SNARE · HAT · PERC · STYLE · PATTERN            (B1 cycles)
  *   SETUP        TEMPO · SWING · GLIDE · KEY · SCALE · CLOCK IN      (hold B3)
  *   B2           tap = play / stop
  *   Settings (B2+B3 2 s): brightness, presets, USB port; page 1 = SD picker
@@ -28,6 +29,11 @@
  * the gamepad changes a knob) the new values are pushed into the pager and
  * the pot has to catch them before it takes over again -- no jumps.
  *
+ * Drums: programmed steps (Launchpad, or /seq/drums.txt on the card, read
+ * at boot when it has changed) plus a generator on the DRUMS page -- the
+ * four amounts are density thresholds (GEN 1-4) or Euclidean hit counts
+ * (EUCLID 1-4) -- whose hits add to the programmed ones.
+ *
  * Saving: the working state autosaves into preset slot kHomeSlot a few
  * seconds after the last change, but ONLY WHILE STOPPED -- a save erases
  * QSPI from the control thread and pauses the 1 ms poll for a few hundred
@@ -43,7 +49,10 @@
 
 #include "daisy_seed.h"
 
+#include "ff.h"
+
 #include "alchemy/hw/alchemy_lab.h"
+#include "alchemy/host_link/crc32.h"
 #include "alchemy/host_link/host.h"
 #include "alchemy/storage/fs_extension.h"
 #include "alchemy/storage/sd_card.h"
@@ -77,7 +86,7 @@ using daisy::System;
 
 static constexpr uint32_t kBlockSize = 24u;
 
-enum : uint8_t { kPageBass = 0, kPageLead = 1, kPageSetup = 2, kNumAppPages = 3 };
+enum : uint8_t { kPageBass = 0, kPageLead = 1, kPageDrums = 2, kPageSetup = 3, kNumAppPages = 4 };
 enum : uint8_t { kSettingsMain = 0, kSettingsFirmware = 1 };
 
 /* ---- hardware + engine -------------------------------------------------- */
@@ -93,6 +102,13 @@ static bool       g_lp_mode = false;     /* front port hosts the controllers */
 
 static constexpr LedPanel::Rgb kColBass   = {0xFF, 0x70, 0x10};
 static constexpr LedPanel::Rgb kColLead   = {0x20, 0xC0, 0xFF};
+static constexpr LedPanel::Rgb kColDrums  = {0xFF, 0x30, 0x50};
+static constexpr LedPanel::Rgb kColKick   = {0xFF, 0x30, 0x30};
+static constexpr LedPanel::Rgb kColSnare  = {0xFF, 0xD0, 0x20};
+static constexpr LedPanel::Rgb kColHat    = {0x30, 0xE0, 0xFF};
+static constexpr LedPanel::Rgb kColPerc   = {0xFF, 0x40, 0xC0};
+static constexpr LedPanel::Rgb kColStyle  = {0xC0, 0xFF, 0x40};
+static constexpr LedPanel::Rgb kColPat    = {0xFF, 0xFF, 0xFF};
 static constexpr LedPanel::Rgb kColSetup  = {0x30, 0x10, 0x40};
 static constexpr LedPanel::Rgb kColDim    = {0x18, 0x18, 0x18};
 static constexpr LedPanel::Rgb kColTempo  = {0xFF, 0xFF, 0xFF};
@@ -105,6 +121,7 @@ static constexpr LedPanel::Rgb kGreen     = {0x00, 0xFF, 0x00};
 static constexpr LedPanel::Rgb kBlue      = {0x00, 0x50, 0xFF};
 static constexpr LedPanel::Rgb kMagenta   = {0xFF, 0x00, 0xA0};
 static constexpr LedPanel::Rgb kIdle      = {0x00, 0x00, 0x30};
+static constexpr LedPanel::Rgb kRedFlash  = {0xFF, 0x00, 0x00};
 
 /* ---- labels ---------------------------------------------------------------- */
 
@@ -117,6 +134,10 @@ static const char* const kScaleLabels[SEQ_SCALE_COUNT] = {
 static const char* const kClockLabels[4] = {"1 ppqn", "2 ppqn", "16ths", "24 ppqn"};
 static const uint8_t     kClockPpqn[4]   = {1, 2, 4, 24};
 static const char* const kUsbLabels[2]   = {"Mac", "Launchpad"};
+static const char* const kStyleLabels[SEQ_DSTYLE_COUNT] = {
+    "Gen 1", "Gen 2", "Gen 3", "Gen 4", "Euclid 1", "Euclid 2", "Euclid 3", "Euclid 4"};
+static const char* const kPatLabels[SEQ_DRUM_SLOTS] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
 
 /* ---- pages --------------------------------------------------------------- */
 
@@ -148,6 +169,26 @@ static VirtualKnob* const kVoiceKnob[SEQ_VOICES][6] = {
 };
 static const uint8_t kVoicePage[SEQ_VOICES] = {kPageBass, kPageLead};
 
+/* DRUMS: the current drum pattern's generator, and which pattern plays.
+ *      [P1] B1 [P2]        KICK,  SNARE
+ *      [P3] B2 [P4]        HAT,   PERC
+ *      [P5] B3 [P6]        STYLE, PATTERN                                   */
+static VirtualKnob kd_kick = VirtualKnob(kPotTopLeft, "Kick")
+    .Ident("drums.kick").Ring(Level(kColKick));
+static VirtualKnob kd_snare = VirtualKnob(kPotTopRight, "Snare")
+    .Ident("drums.snare").Ring(Level(kColSnare));
+static VirtualKnob kd_hat = VirtualKnob(kPotMiddleLeft, "Hat")
+    .Ident("drums.hat").Ring(Level(kColHat));
+static VirtualKnob kd_perc = VirtualKnob(kPotMiddleRight, "Perc")
+    .Ident("drums.perc").Ring(Level(kColPerc));
+static VirtualKnob kd_style = VirtualKnob(kPotBottomLeft, "Style")
+    .Selector(SEQ_DSTYLE_COUNT).Labels(kStyleLabels).Ident("drums.style")
+    .Ring(SelectorRing(kColStyle, kColDim, SEQ_DSTYLE_COUNT));
+static VirtualKnob kd_pat = VirtualKnob(kPotBottomRight, "Pattern")
+    .Selector(SEQ_DRUM_SLOTS).Labels(kPatLabels).Ident("drums.pattern")
+    .Ring(SelectorRing(kColPat, kColDim, SEQ_DRUM_SLOTS));
+static VirtualKnob* const kDrumKnob[6] = {&kd_kick, &kd_snare, &kd_hat, &kd_perc, &kd_style, &kd_pat};
+
 /* SETUP: hold B3. Global, so these are plain pager values. */
 static VirtualKnob k_tempo = VirtualKnob(kPotTopLeft, "Tempo")
     .Linear(30.f, 300.f).Ident("tempo").Unit("BPM").Ring(Level(kColTempo));
@@ -169,6 +210,8 @@ static Page bass_page = Page(kPageBass).Name("Bass").Color("#ff7010")
     .Knobs(kb_dens, kb_len, kb_slide, kb_jump, kb_tones, kb_oct);
 static Page lead_page = Page(kPageLead).Name("Lead").Color("#20c0ff")
     .Knobs(kl_dens, kl_len, kl_slide, kl_jump, kl_tones, kl_oct);
+static Page drums_page = Page(kPageDrums).Name("Drums").Color("#ff3050")
+    .Knobs(kd_kick, kd_snare, kd_hat, kd_perc, kd_style, kd_pat);
 static Page setup_page = Page(kPageSetup).Name("Setup").Color("#c060ff")
     .Knobs(k_tempo, k_swing, k_glide, k_key, k_scale, k_clock);
 
@@ -185,8 +228,8 @@ static Jack jk_j8  ("J8",  "Snare",      JackSig::Trig);
 static Jack jk_j9  ("J9",  "Hat",        JackSig::Trig);
 static Jack jk_j10 ("J10", "Perc",       JackSig::Trig);
 
-static VirtualButton bt_voice = VirtualButton("b1", "Bass / Lead")
-    .Action("Tap", "Switch the pots between the bass and the lead");
+static VirtualButton bt_voice = VirtualButton("b1", "Bass / Lead / Drums")
+    .Action("Tap", "Cycle the pots: bass, lead, drums");
 static VirtualButton bt_play = VirtualButton("b2", "Play / Stop")
     .Action("Tap", "Start from the top, or stop (stopping also lets it save)");
 static VirtualButton bt_setup = VirtualButton("b3", "Setup")
@@ -200,9 +243,12 @@ static Manual manual = Manual()
         "J3/J4 are the bass and lead pitch (1 V/oct), J5/J6 their gates, "
         "J7-J10 kick, snare, hat and perc. J1 takes a clock (it takes over "
         "from the internal tempo on the first pulse; two seconds without one "
-        "stops the transport) and J2 a reset. B1 flips the pots between the "
-        "bass and the lead: DENSITY, LENGTH, SLIDE, JUMP, TONES (chord tones "
-        "only .. any scale tone) and OCTAVE. Hold B3 for TEMPO, SWING, GLIDE, "
+        "stops the transport) and J2 a reset. B1 cycles the pots through the "
+        "bass and the lead -- DENSITY, LENGTH, SLIDE, JUMP, TONES (chord "
+        "tones only .. any scale tone) and OCTAVE -- and the drums: an "
+        "amount per drum, STYLE (Gen 1-4 thresholds, Euclid 1-4) and "
+        "PATTERN. Drum steps come from the Launchpad or from /seq/drums.txt "
+        "on the card (read at power-up when it has changed). Hold B3 for TEMPO, SWING, GLIDE, "
         "KEY, SCALE and the clock-in rate. B2 plays and stops. The working "
         "state saves itself a few seconds after you stop. In Launchpad mode "
         "(Settings: USB port) a Launchpad Mini MK3, a Launch Control XL and "
@@ -213,7 +259,7 @@ static Manual manual = Manual()
 
 static ControlLoop loop(hw);
 static Pager       pager = Pager(kNumAppPages, kNumPots)
-                               .Cycle(hw.buttons[kButtonB1], kPageBass, kPageLead)
+                               .Cycle(hw.buttons[kButtonB1], kPageBass, kPageLead, kPageDrums)
                                .Shift(hw.buttons[kButtonB3], kPageSetup);
 
 /*
@@ -353,6 +399,84 @@ static void apply_setup(void)
     S.clock_ppqn = kClockPpqn[zoned(z_clock, k_clock.Norm())];
 }
 
+/* ---- drum pots <-> the current drum pattern ------------------------------ */
+
+/* Same two-writer rule as the voice pots. KICK..PERC and STYLE edit the
+ * pattern playing now; PATTERN queues one for the next bar. */
+static float g_dapplied[6];
+static Zoned z_style{SEQ_DSTYLE_COUNT}, z_pat{SEQ_DRUM_SLOTS};
+
+static float zone_norm(int z, int n) { return ((float)z + 0.5f) / (float)n; }
+
+static void sync_drum_knobs(void)
+{
+    seq_drums_t* dr = seq_drums(&S);
+    for(int p = 0; p < 6; p++)
+    {
+        const float pn = kDrumKnob[p]->Norm();
+        if(p < 4)
+        {
+            const float sn = dr->gen[p];
+            if(fabsf(pn - g_dapplied[p]) > 1e-4f)
+            {
+                dr->gen[p]    = pn;
+                g_dapplied[p] = pn;
+            }
+            else if(fabsf(sn - g_dapplied[p]) > 1e-4f)
+            {
+                pager.SetStored(kPageDrums, (uint8_t)p, sn, g_phys);
+                g_dapplied[p] = sn;
+            }
+            continue;
+        }
+        const int n       = p == 4 ? SEQ_DSTYLE_COUNT : SEQ_DRUM_SLOTS;
+        Zoned&    z       = p == 4 ? z_style : z_pat;
+        const int zone    = zoned(z, pn);
+        const int applied = (int)(g_dapplied[p] * (float)n);
+        const int now     = p == 4 ? dr->style : S.drum_queued;
+        if(zone != applied)
+        {
+            if(p == 4) dr->style = (uint8_t)zone;
+            else seq_drum_queue(&S, zone);
+            g_dapplied[p] = zone_norm(zone, n);
+        }
+        else if(now != applied)
+        {
+            g_dapplied[p] = zone_norm(now, n);
+            pager.SetStored(kPageDrums, (uint8_t)p, g_dapplied[p], g_phys);
+            z.last = -1;
+        }
+    }
+}
+
+/* ---- /seq/drums.txt ------------------------------------------------------------ */
+
+/* Read at power-up. Imported only when its CRC differs from the last one
+ * imported (kept in the saved state), and the file is left on the card:
+ * if the module is switched off before the import was saved, the next
+ * power-up simply imports it again. B2 flashes green for an import, red
+ * for a file that makes no sense (nothing changes then). */
+alignas(32) static ALCHEMY_SDMMC_BSS FIL  s_drums_fil;
+alignas(32) static ALCHEMY_SDMMC_BSS char s_drums_buf[8192];
+static uint32_t g_import_flash_until = 0;
+static bool     g_import_ok          = false;
+
+static void import_drums_file(uint32_t now)
+{
+    if(!sd.EnsureMounted(now)) return;
+    if(f_open(&s_drums_fil, "/seq/drums.txt", FA_READ) != FR_OK) return;
+    UINT got = 0;
+    const FRESULT r = f_read(&s_drums_fil, s_drums_buf, sizeof s_drums_buf, &got);
+    f_close(&s_drums_fil);
+    if(r != FR_OK || got == 0 || got >= sizeof s_drums_buf) return;
+    const uint32_t crc = hostlink::Crc32(reinterpret_cast<const uint8_t*>(s_drums_buf), got);
+    if(crc == S.drums_file_crc) return;
+    const int n = seq_drums_parse(&S, s_drums_buf, got);
+    g_import_ok          = n >= 0;
+    g_import_flash_until = now + 1500u;
+    if(n >= 0) S.drums_file_crc = crc;
+}
+
 /* ---- jacks ------------------------------------------------------------------ */
 
 static float g_last_volts[kNumCvJacks];
@@ -412,7 +536,8 @@ static void apply_mutes(void);
  *   row 8      ROLL · MUTATE · UNDO · LOCK · OCT- · OCT+ · RATE · MUTE
  * DRUMS
  *   rows 1-2 kick, 3-4 snare, 5-6 hat, 7-8 perc: 16 steps each. Tap = on
- *   (100 %) / off; SHIFT+tap steps the chance down 100-75-50-25 %.
+ *   (100 %) / off; SHIFT+tap steps the chance down 100-75-50-25 %. Grey is
+ *   a hit from the generator (DRUMS pot page); tapping it programs it.
  * PATTERNS
  *   row 1 bass slots, row 2 lead slots, rows 3-4 the 16 drum patterns.
  */
@@ -611,9 +736,11 @@ static void lp_paint(uint32_t now)
             const int cur = S.running && S.drum_step[d] >= 0 ? S.drum_step[d] % dr.steps[d] : -1;
             for(int k = 0; k < 16; k++)
             {
-                const int p = dr.prob[d][k];
+                bool gen = false;
+                const int p = seq_drum_prob(&S, d, k, &gen);
                 uint8_t c = k >= dr.steps[d] ? lp::kOff
-                          : (p == 0 ? lp::kOff : (p >= 3 ? kDrumCol[d] : kDrumColDim[d]));
+                          : (p == 0 ? lp::kOff
+                                    : (gen ? lp::kGrey : (p >= 3 ? kDrumCol[d] : kDrumColDim[d])));
                 if(k == cur) c = lp::kWhite;
                 lp::SetGrid((uint8_t)(k % 8), (uint8_t)(d * 2 + k / 8), c);
             }
@@ -644,6 +771,7 @@ static void lp_paint(uint32_t now)
  *
  * Knob row 1 = bass, row 2 = lead: DENSITY · LENGTH · SLIDE · JUMP · TONES ·
  * OCTAVE · RANGE · SWING (how much of the global swing the voice takes).
+ * Knob row 3 = drums: KICK · SNARE · HAT · PERC amounts · STYLE · PATTERN.
  * Buttons, upper row: bass ROLL · MUTATE · UNDO · LOCK, lead the same.
  * Lower row: mutes bass · lead · kick · snare · hat · perc, -, PLAY.
  */
@@ -663,6 +791,15 @@ static void xl_frame(void)
             else if(c == 6) k->range = (uint8_t)(1 + lroundf(n * 2.0f));
             else k->swing = n;
         }
+    }
+    for(int c = 0; c < 6; c++)
+    {
+        uint8_t val;
+        if(!xl::Knob(2, (uint8_t)c, &val)) continue;
+        const float n = (float)val / 127.0f;
+        if(c < 4) seq_drums(&S)->gen[c] = n;
+        else if(c == 4) seq_drums(&S)->style = (uint8_t)(n * (SEQ_DSTYLE_COUNT - 0.01f));
+        else seq_drum_queue(&S, (int)(n * (SEQ_DRUM_SLOTS - 0.01f)));
     }
     xl::Button b;
     while(xl::PopButton(&b))
@@ -851,6 +988,7 @@ static void OnFrame(void)
     if(g_lp_mode && g_lp_stage >= 2) xl_frame();
     apply_setup();
     sync_voice_knobs();
+    sync_drum_knobs();
     if(g_lp_mode && g_lp_stage >= 2) lp_paint(now);
 
     /* Anything that would be saved changed? Compare the state as it would
@@ -906,11 +1044,15 @@ static void OnRender(uint32_t t_ms)
     LedPanel& L = hw.leds;
     if(settings.IsActive()) return;
 
-    L.SetButtonPair(kButtonB1, L.ScaleGlobal(pager.Page() == kPageLead ? kColLead : kColBass));
+    L.SetButtonPair(kButtonB1, L.ScaleGlobal(pager.Page() == kPageLead    ? kColLead
+                                             : pager.Page() == kPageDrums ? kColDrums
+                                                                          : kColBass));
 
     LedPanel::Rgb b2c = S.running ? kGreen : kIdle;
     if(t_ms < g_clock_flash_until) b2c = kBlue;
     if(g_dirty && S.running && (t_ms % 2000u) < 120u) b2c = kMagenta;
+    if(t_ms < g_import_flash_until && (t_ms / 150u) % 2u == 0u)
+        b2c = g_import_ok ? kGreen : kRedFlash;
     L.SetButtonPair(kButtonB2, L.ScaleGlobal(b2c));
 
     if(pager.Page() != kPageSetup)
@@ -966,7 +1108,7 @@ int main(void)
 
     host.Product("seq")
         .BootSlot(kHomeSlot)
-        .Pages(bass_page, lead_page, setup_page)
+        .Pages(bass_page, lead_page, drums_page, setup_page)
         .Jacks(jk_j1, jk_j2, jk_j3, jk_j4, jk_j5, jk_j6, jk_j7, jk_j8, jk_j9, jk_j10)
         .Buttons(bt_voice, bt_play, bt_setup)
         .Attach(manual)
@@ -1031,6 +1173,18 @@ int main(void)
         System::Delay(1);
     }
     const bool force_mac = hw.buttons[kButtonB1].Pressed();
+
+    /* The drum file, after the saved snapshot above so an import counts as
+     * a change and autosaves; then the DRUMS page shows what plays. */
+    import_drums_file(System::GetNow());
+    {
+        const seq_drums_t* dr = seq_drums(&S);
+        for(int p = 0; p < 4; p++) g_dapplied[p] = dr->gen[p];
+        g_dapplied[4] = zone_norm(dr->style, SEQ_DSTYLE_COUNT);
+        g_dapplied[5] = zone_norm(S.drum_queued, SEQ_DRUM_SLOTS);
+        for(int p = 0; p < 6; p++)
+            pager.SetStored(kPageDrums, (uint8_t)p, g_dapplied[p], g_phys);
+    }
     g_lp_mode    = (int)s_usb.Value() == 1 && !force_mac;
     g_lp_boot_ms = System::GetNow();
 
@@ -1040,6 +1194,7 @@ int main(void)
         .Use(settings)
         .Use(bass_page)
         .Use(lead_page)
+        .Use(drums_page)
         .Use(setup_page)
         .OnFrame(OnFrame)
         .OnPoll(OnPoll)
