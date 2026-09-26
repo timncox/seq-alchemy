@@ -113,7 +113,27 @@ typedef struct {
 typedef struct {
     uint8_t prob[SEQ_DRUMS][SEQ_MAX_STEPS];
     uint8_t steps[SEQ_DRUMS]; /* per-voice loop length (polymeter) */
+    /* The generator, added on top of the programmed steps: a generated hit
+     * fires at 100 % (it wins over a programmed 25-75 % step). */
+    float   gen[SEQ_DRUMS];   /* amount 0..1 per drum; 0 = programmed only */
+    uint8_t style;            /* seq_drum_style_t */
 } seq_drums_t;
+
+/* How a drum pattern's generator places hits.
+ *   GEN 1-4    the voices' rule: every step owns a fixed number and the
+ *              amount is a threshold against it, so raising it only adds
+ *              hits and turning it back returns the same beat. Kicks come
+ *              in on the beat first, snares on 2 and 4, hats on the 8ths.
+ *              The four are four fixed sets of numbers.
+ *   EUCLID 1-4 the amount is a hit count, round(amount x loop length),
+ *              spread as evenly as the loop allows (Bjorklund / Toussaint),
+ *              each drum rotated by a per-style table so E(2,16) on the
+ *              snare lands on 2 and 4. */
+typedef enum {
+    SEQ_DSTYLE_GEN1 = 0, SEQ_DSTYLE_GEN2, SEQ_DSTYLE_GEN3, SEQ_DSTYLE_GEN4,
+    SEQ_DSTYLE_EUCLID1, SEQ_DSTYLE_EUCLID2, SEQ_DSTYLE_EUCLID3, SEQ_DSTYLE_EUCLID4,
+    SEQ_DSTYLE_COUNT
+} seq_drum_style_t;
 
 typedef struct {
     int8_t  degree; /* scale degree of the chord root, 0-based */
@@ -182,6 +202,8 @@ typedef struct {
     bool     reset_pending;
 
     uint32_t rng;        /* runtime dice: drum probability, mutate, roll */
+
+    uint32_t drums_file_crc; /* CRC of the last drum file imported (kept) */
 } seq_t;
 
 /* Setup. Everything starts stopped on internal clock at 120 BPM. */
@@ -223,6 +245,33 @@ void seq_drum_mute(seq_t *s, int drum, bool mute);
 /* Edit the current drum pattern. prob 0 = off, 1..4 = 25..100 %. */
 void seq_drum_set(seq_t *s, int drum, int step, int prob);
 
+/* The current drum pattern (the one playing), for the UI to edit its
+ * generator: gen[] and style. Fetch it each time; it changes at bar lines. */
+seq_drums_t *seq_drums(seq_t *s);
+/* What a drum step does now in the current pattern: 0 off, 1..4 = 25..100 %
+ * (a generated hit counts as 4). *generated, if given, says the hit comes
+ * from the generator rather than a programmed step. */
+int seq_drum_prob(const seq_t *s, int drum, int step, bool *generated);
+/* One Euclidean rhythm: is step k (0..n-1) a hit of E(hits, n) rotated by
+ * rot steps? Exposed for tests and the manual. */
+bool seq_euclid(int hits, int n, int rot, int k);
+
+/* Drum patterns as text (the SD card's /seq/drums.txt):
+ *
+ *   pattern 3            which slot the lines below go to, 1..16
+ *   kick  x...x...x...x...
+ *   snare ....x.......x...
+ *   hat   ..x.3.x.2.x.1.x.
+ *   perc  x..x..x..        (a line's length is that drum's loop: 1..64)
+ *
+ * x = 100 %, 3 / 2 / 1 = 75 / 50 / 25 %, . or - = off; spaces inside a
+ * line are ignored. '#' starts a comment. Drums may be missing (they are
+ * left as they are); lines before the first "pattern" go to pattern 1.
+ * Only the patterns the text names change, and a named pattern's generator
+ * is switched off so the file is what plays. Returns how many patterns
+ * were written, or -1 (and changes nothing) if a line makes no sense. */
+int seq_drums_parse(seq_t *s, const char *text, size_t len);
+
 /* Where things are, for the Launchpad and the rings. */
 int seq_chord_index(const seq_t *s); /* chord playing now */
 
@@ -233,7 +282,7 @@ int seq_chord_index(const seq_t *s); /* chord playing now */
  * field into range, so a corrupt blob makes an odd pattern, never a crash;
  * a wrong version byte returns false and changes nothing. Reading stops the
  * transport and clears the runtime state. */
-#define SEQ_STATE_VERSION 1
+#define SEQ_STATE_VERSION 2
 #define SEQ_STATE_BYTES 15600
 void seq_state_write(const seq_t *s, uint8_t *out);
 bool seq_state_read(seq_t *s, const uint8_t *in);
