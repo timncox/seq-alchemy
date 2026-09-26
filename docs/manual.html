@@ -62,7 +62,7 @@ section{padding-block:64px;border-bottom:1px solid var(--line)}
 h2.sh{font-family:var(--disp);font-weight:800;font-size:clamp(32px,5vw,50px);letter-spacing:-.02em;line-height:1;margin:0;text-wrap:balance}
 .sub{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:12px 0 22px}
 .lede{font-size:18px;color:var(--soft);max-width:66ch}
-.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}
+.cols{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:28px}
 @media(max-width:820px){.cols{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px}
 .card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin-bottom:8px}
@@ -115,6 +115,17 @@ body.leadv input[type=range]{accent-color:var(--lead)}
 .lane{display:block;width:100%;min-width:520px;height:auto}
 .lanecap{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:10px}
 
+/* drum editor */
+.dgrid{display:grid;grid-template-columns:52px repeat(16,minmax(0,1fr));gap:4px;min-width:520px;align-items:center}
+.dgrid .dn{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.dgrid .st{aspect-ratio:1/1;border:none;border-radius:3px;background:#262019;cursor:pointer;padding:0}
+.dgrid .st.q{box-shadow:inset 3px 0 0 rgba(239,233,226,.12)}
+.dgrid .hd{font-family:var(--mono);font-size:9.5px;color:var(--dim);text-align:center}
+.filebox{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.filehead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--dim)}
+.filehead select{font-family:var(--mono);font-size:11px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:3px}
+#dText{margin:0;padding:12px 14px;font-family:var(--mono);font-size:13px;line-height:1.55;color:var(--ink);overflow-x:auto;white-space:pre}
+
 /* launchpad */
 .lpbox{display:grid;grid-template-columns:minmax(0,440px) 1fr;gap:36px;align-items:start;margin-top:10px}
 @media(max-width:820px){.lpbox{grid-template-columns:1fr}}
@@ -137,6 +148,7 @@ body.leadv input[type=range]{accent-color:var(--lead)}
 .xl .kn.b{box-shadow:0 0 0 2px var(--acc)}
 .xl .kn.l{box-shadow:0 0 0 2px var(--lead)}
 .xl .kn.off{opacity:.35}
+.xl .kn.d{box-shadow:0 0 0 2px #ff3050}
 .xl .fd{height:64px;width:10px;justify-self:center;border-radius:5px;background:#101012;position:relative;opacity:.4}
 .xl .fd::after{content:"";position:absolute;left:-7px;width:24px;height:10px;top:60%;border-radius:2px;background:#555}
 .xl .bt{height:22px;border-radius:3px;background:#2a2a2c;font-family:var(--mono);font-size:8.5px;letter-spacing:.02em;color:#111;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.05;padding:0 2px;overflow:hidden}
@@ -168,6 +180,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
   <a class="s" href="#idea">The idea</a>
   <a class="s" href="#panel">Panel</a>
   <a class="s" href="#gen">Generator</a>
+  <a class="s" href="#drums">Drums</a>
   <a class="s" href="#launchpad">Launchpad</a>
   <a class="s" href="#xl">XL + Haute42</a>
   <a class="s" href="#clock">Clock</a>
@@ -183,7 +196,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
       <p class="tagline">Two generated voices that follow your chords, four drum triggers, and a Launchpad to play it all.</p>
       <div class="status">
         <span class="chip ok">builds clean</span>
-        <span class="chip ok">67,307 native checks pass</span>
+        <span class="chip ok">67,382 native checks pass</span>
         <span class="chip no">not flashed yet</span>
       </div>
     </div>
@@ -208,6 +221,10 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <div class="card"><div class="k">Chords</div><h4>Lines follow the progression</h4>
       <p>A step stores "the 2nd chord tone", not "E". A locked line still re-voices on every chord
         change. The default is A minor, i – VI – III – VII, a bar each.</p></div>
+    <div class="card"><div class="k">Drums</div><h4>Programmed, generated, or both</h4>
+      <p>Steps you enter (on the Launchpad, or in a text file on the SD card) plus a generator
+        on the pots: density thresholds or Euclidean rhythms, added on top. Works with no
+        controller plugged in.</p></div>
     <div class="card"><div class="k">Keep, roll, undo</div><h4>Eight slots per voice</h4>
       <p>ROLL makes a new line, MUTATE changes a quarter of it, UNDO swaps the last one back (again
         for redo), LOCK freezes it. Each voice has 8 pattern slots and the drums 16, queued to the
@@ -217,13 +234,14 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
 
 <section id="panel"><div class="wrap">
   <h2 class="sh">The panel</h2>
-  <div class="sub">Three pages · click any control</div>
-  <p class="lede" style="margin-bottom:24px">B1 flips the pots between the bass and the lead. Hold
-    B3 for Setup. The voice pots edit the pattern that is playing now; when another pattern takes
+  <div class="sub">Four pages · click any control</div>
+  <p class="lede" style="margin-bottom:24px">B1 cycles the pots through the bass, the lead and the
+    drums. Hold B3 for Setup. The voice pots edit the pattern that is playing now; when another pattern takes
     over, the pots have to catch its values before they move anything, so nothing jumps.</p>
   <div class="toggles">
     <button class="tg" id="tgBass" aria-pressed="true">Bass · B1</button>
     <button class="tg lead" id="tgLead" aria-pressed="false">Lead · B1</button>
+    <button class="tg" id="tgDrums" aria-pressed="false">Drums · B1</button>
     <button class="tg" id="tgSetup" aria-pressed="false">Setup · hold B3</button>
   </div>
   <div class="drawing">
@@ -231,7 +249,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <div class="readout" id="ro">
       <div class="rk" id="roK">Select a control</div>
       <h3 id="roT">The panel</h3>
-      <div class="rs" id="roS">6 pots × 3 pages · 3 buttons · 10 jacks</div>
+      <div class="rs" id="roS">6 pots × 4 pages · 3 buttons · 10 jacks</div>
       <div class="rd" id="roD">Hover or tap a pot, a button or a jack. B2 plays and stops. B2 and B3 held together for two seconds open Settings: brightness, presets, the USB port, and the SD-card firmware picker.</div>
       <div class="rm" id="roM"></div>
     </div>
@@ -257,7 +275,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
 <section id="gen"><div class="wrap">
   <h2 class="sh">The generator</h2>
   <div class="sub">The core's own maths, running in this page · seed 2026, slot 1</div>
-  <p class="lede">This is the pattern the module starts with after a fresh flash, computed by the
+  <p class="lede">This is the line the module starts with after a fresh flash, computed by the
     same hash the firmware uses. Drag DENSITY down and up: notes leave and come back in the same
     places. Downbeats come in first.</p>
   <div class="gen">
@@ -280,6 +298,41 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
       <div class="lanewrap"><svg class="lane" id="lane" viewBox="0 0 640 220" role="img" aria-label="16 steps of the selected voice"></svg></div>
       <div class="lanecap" id="laneCap"></div>
     </div>
+  </div>
+</div></section>
+
+<section id="drums"><div class="wrap">
+  <h2 class="sh">Drums</h2>
+  <div class="sub">Three ways in · the same pattern here and in the Launchpad below</div>
+  <p class="lede">A drum pattern is the steps you programmed plus what the generator adds. Click
+    the steps below to program them, turn the amounts to add generated hits (the grey ones), and
+    copy the text into <code>/seq/drums.txt</code> on the card.</p>
+  <div class="gen">
+    <div class="knobs">
+      <div class="knob"><label for="dStyle">Style <span id="dStyleV"></span></label><input type="range" id="dStyle" min="0" max="7" step="1"></div>
+      <div class="knob"><label for="dA0">Kick <span id="dA0V"></span></label><input type="range" id="dA0" min="0" max="1" step="0.01"></div>
+      <div class="knob"><label for="dA1">Snare <span id="dA1V"></span></label><input type="range" id="dA1" min="0" max="1" step="0.01"></div>
+      <div class="knob"><label for="dA2">Hat <span id="dA2V"></span></label><input type="range" id="dA2" min="0" max="1" step="0.01"></div>
+      <div class="knob"><label for="dA3">Perc <span id="dA3V"></span></label><input type="range" id="dA3" min="0" max="1" step="0.01"></div>
+      <div class="btnrow"><button class="tg" id="dClear">Clear steps</button><button class="tg" id="dDefault">Default beat</button></div>
+    </div>
+    <div>
+      <div class="lanewrap"><div class="dgrid" id="dgrid" role="grid" aria-label="Drum steps"></div>
+        <div class="lanecap">Click: on / off · shift-click: 75 → 50 → 25 % · bright = programmed, dim = 25–50 %, grey = generated</div>
+      </div>
+      <div class="filebox">
+        <div class="filehead"><span>/seq/drums.txt · pattern <select id="dPat" aria-label="Pattern number"></select></span><button class="tg" id="dCopy">Copy</button></div>
+        <pre id="dText" tabindex="0"></pre>
+      </div>
+    </div>
+  </div>
+  <div class="rules">
+    <div class="rule"><h4>On the Launchpad</h4><p>DRUMS mode: four drums, two rows each, 16 steps. Tap for on or off; SHIFT and tap for 75, 50, 25 %. Grey pads are generated; tapping one programs it.</p></div>
+    <div class="rule"><h4>On the pots, no controller needed</h4><p>B1 to the DRUMS page. KICK, SNARE, HAT and PERC set how much the generator adds; STYLE picks Gen 1–4 or Euclid 1–4; PATTERN picks which of the 16 plays, at the next bar. Each pattern keeps its own.</p></div>
+    <div class="rule"><h4>From the Mac: /seq/drums.txt</h4><p>Write patterns as text (the box above does it for you), put the file on the card, power-cycle. The module reads it at power-up when it has changed, writes only the patterns it names, and switches their generator off so the file is what plays. B2 flashes green when it took it, red when a line made no sense (nothing changes then). The file stays on the card.</p></div>
+    <div class="rule"><h4>Getting the file onto the card</h4><p>Pull the card and copy it on from the Mac. Or, in Mac mode (B1 held at power-up), without touching the card: <code>node tools/hostlink-fs.mjs mkdir /seq</code> then <code>node tools/hostlink-fs.mjs put drums.txt /seq/drums.txt --overwrite</code>.</p></div>
+    <div class="rule"><h4>Drum presets</h4><p>A preset already keeps the drums: Settings (B2+B3 for 2 s), pots 2 and 3, saves or loads slots 0–10, and so does the web programmer. A preset is the whole state, both voices included. To keep just drum ideas, use the 16 patterns, or keep several drums.txt files on the Mac.</p></div>
+    <div class="rule"><h4>Loop length per drum</h4><p>In the file, a line's length is that drum's loop, 1 to 64 steps: a 16-step kick with a 12-step hat gives polymeter. The Launchpad edits the first 16 steps.</p></div>
   </div>
 </div></section>
 
@@ -309,9 +362,11 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
       <div class="rs">factory template 1 · knob row per voice</div>
       <div class="xl" id="xlBox"></div>
       <div class="klab"><span>DENS</span><span>LEN</span><span>SLIDE</span><span>JUMP</span><span>TONES</span><span>OCT</span><span>RANGE</span><span>SWING</span></div>
+      <div class="klab"><span>KICK</span><span>SNARE</span><span>HAT</span><span>PERC</span><span>STYLE</span><span>PATT</span><span>–</span><span>–</span></div>
       <p style="color:var(--soft);margin-top:16px;font-size:15px">Row 1 is the bass, row 2 the lead.
         RANGE spreads the line over 1–3 octaves; SWING is how much of the global swing that voice
-        takes. The third knob row and the faders do nothing yet. A knob turned on the XL moves the
+        takes. Row 3 is the drums page: four amounts, STYLE and PATTERN. The faders do nothing
+        yet. A knob turned on the XL moves the
         value on the Lab too, and the Lab's pot then has to catch it.</p>
     </div>
     <div>
@@ -364,8 +419,8 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <div>
       <h3 style="color:var(--ok)">Checked</h3>
       <ul class="list">
-        <li>67,307 native checks pass under AddressSanitizer and UBSan: the generator, chords, lock and undo, both clocks, drums, gates and glide, saving and loading.</li>
-        <li>The firmware builds with no warnings: 329 KB, fast memory at 58%.</li>
+        <li>67,382 native checks pass under AddressSanitizer and UBSan: the generator, chords, lock and undo, both clocks, drums and the drum generator, Euclidean rhythms, the drums.txt reader, gates and glide, saving and loading.</li>
+        <li>The firmware builds with no warnings; fast memory at 59%.</li>
         <li>Saving round-trips: a reloaded state plays identically, and a corrupt one is clamped into range.</li>
       </ul>
     </div>
@@ -375,6 +430,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
         <li>Clock and reset on J1/J2 through the AC-coupled inputs (1 V threshold).</li>
         <li>The XL's LED colours; the index map is unverified in Mark too.</li>
         <li>All three controllers on the hub at once.</li>
+        <li>Reading /seq/drums.txt from a real card.</li>
         <li>Not built yet: the CHORDS page (the progression is fixed for now) and autotune in TUNE mode.</li>
       </ul>
     </div>
@@ -605,6 +661,14 @@ const PAGES = [
     { name:"TONES", ring:{style:"level", c:C.lead}, v:.3, sub:"chord tones … scale tones", d:"How often the lead steps outside the chord into the scale.", meta:["knob <b>tone_bias</b>","default <b>30 %</b>"] },
     { name:"OCTAVE", ring:{style:"sel", c:C.lead, n:7}, v:3.5/7, sub:"−3 … +3", d:"The lead sits at 2 V (C2) at 0 and spreads over two octaves by default.", meta:["knob <b>octave</b>","ring <b>7 dots</b>"] },
   ]},
+  { name:"DRUMS", color:"#ff3050", pots:[
+    { name:"KICK", ring:{style:"level", c:"#ff3030"}, v:.25, sub:"generator amount", d:"How much of the kick the generator adds on top of the programmed steps. In a Gen style it is a threshold: beats first, then 8ths, then 16ths. In a Euclid style it is a hit count: 25 % of a 16-step loop is E(4,16).", meta:["pattern <b>gen[kick]</b>","0 <b>programmed only</b>"] },
+    { name:"SNARE", ring:{style:"level", c:"#ffd020"}, v:.125, sub:"generator amount", d:"Gen: 2 and 4 first. Euclid: E(2,16) lands on 2 and 4 in Euclid 1 and 2.", meta:["pattern <b>gen[snare]</b>"] },
+    { name:"HAT", ring:{style:"level", c:"#30e0ff"}, v:.25, sub:"generator amount", d:"Gen: the off-beats first, then 8ths, then 16ths.", meta:["pattern <b>gen[hat]</b>"] },
+    { name:"PERC", ring:{style:"level", c:"#ff40c0"}, v:0, sub:"generator amount", d:"Anywhere in the bar, no preference: the wild card.", meta:["pattern <b>gen[perc]</b>"] },
+    { name:"STYLE", ring:{style:"sel", c:"#c0ff40", n:8}, v:4.5/8, sub:"Gen 1–4 · Euclid 1–4", d:"Gen 1–4 are four fixed generated beats: turning the amounts only adds hits, and turning back returns the same beat. Euclid 1–4 spread each drum's hits as evenly as its loop allows, each with its own set of rotations.", meta:["pattern <b>style</b>","ring <b>8 dots</b>"] },
+    { name:"PATTERN", ring:{style:"sel", c:"#ffffff", n:16}, v:.5/16, sub:"1 … 16", d:"Which of the 16 drum patterns plays. It changes at the next bar line; stopped, it changes as you press play. Each pattern keeps its own steps, amounts and style.", meta:["queues <b>drum pattern</b>","at <b>the bar</b>"] },
+  ]},
   { name:"SETUP", color:"#c060ff", pots:[
     { name:"TEMPO", ring:{style:"level", c:C.tempo}, v:90/270, sub:"30–300 BPM", d:"The internal tempo. Ignored while J1 is clocking.", meta:["global <b>bpm</b>","default <b>120</b>"] },
     { name:"SWING", ring:{style:"level", c:C.swing}, v:0, sub:"straight … hard shuffle", d:"Delays every second 16th, from straight to a heavy shuffle. Each voice can take less of it (SWING on the XL).", meta:["global <b>swing</b>","default <b>straight</b>"] },
@@ -615,8 +679,8 @@ const PAGES = [
   ]},
 ];
 const BUTTONS = [
-  { id:"B1", name:"BASS / LEAD", sub:"tap", d:"Flips the pots between the bass and the lead page. Its light is the page: orange bass, cyan lead. Held through power-up it starts Mac mode once, for the web programmer.", meta:["light <b>the voice</b>","at power-up <b>Mac mode</b>"] },
-  { id:"B2", name:"PLAY / STOP", sub:"tap", d:"Plays from the top or stops. Green while playing, a blue flash on every J1 pulse, a magenta flash every 2 s while there is unsaved work (stop to save it). Stands down while B3 is held.", meta:["light <b>transport</b>","with B3 2 s <b>Settings</b>"] },
+  { id:"B1", name:"PAGE", sub:"tap", d:"Cycles the pots: bass, lead, drums. Its light is the page: orange bass, cyan lead, red drums. Held through power-up it starts Mac mode once, for the web programmer.", meta:["light <b>the voice</b>","at power-up <b>Mac mode</b>"] },
+  { id:"B2", name:"PLAY / STOP", sub:"tap", d:"Plays from the top or stops. Green while playing, a blue flash on every J1 pulse, a magenta flash every 2 s while there is unsaved work (stop to save it). Stands down while B3 is held. At power-up it flashes green when it read a new drums.txt, red when the file made no sense.", meta:["light <b>transport</b>","with B3 2 s <b>Settings</b>"] },
   { id:"B3", name:"SETUP", sub:"hold", d:"Shows the Setup page while held, with catch both ways so nothing jumps. Held at power-up it is the bootloader's DFU button.", meta:["page <b>SETUP</b>","at power-up <b>DFU</b>"] },
 ];
 const JACKS = {
@@ -690,7 +754,7 @@ function drawPanel(svg, st, onHover) {
     el("text", { x:p.x, y:p.y + P.labels.knob_dy, class:"plabel lit" }, g).textContent = k.name;
     el("circle", { cx:p.x, cy:p.y, r:P.ring.r + 2.2, class:"hit" }, g);
   });
-  const halos = [st.page === 1 ? C.lead : C.bass, C.green, st.page === 2 ? PAGES[2].color : C.setup];
+  const halos = [st.page === 1 ? C.lead : st.page === 2 ? "#ff3050" : C.bass, C.green, st.page === 3 ? PAGES[3].color : C.setup];
   P.buttons.forEach((b, i) => {
     const g = mk("B" + (i + 1)); drawButton(g, b, halos[i]);
     el("text", { x:b.x, y:b.y + P.labels.button_dy, class:"plabel" }, g).textContent = BUTTONS[i].name;
@@ -735,10 +799,10 @@ psvg.addEventListener("mouseleave", () => showReadout(pinned));
 redraw();
 function setPage(p) {
   iv.page = p;
-  [tgBass, tgLead, tgSetup].forEach((b, i) => b.setAttribute("aria-pressed", i === p));
+  [tgBass, tgLead, tgDrums, tgSetup].forEach((b, i) => b.setAttribute("aria-pressed", i === p));
   redraw(); showReadout(pinned);
 }
-tgBass.onclick = () => setPage(0); tgLead.onclick = () => setPage(1); tgSetup.onclick = () => setPage(2);
+tgBass.onclick = () => setPage(0); tgLead.onclick = () => setPage(1); tgDrums.onclick = () => setPage(2); tgSetup.onclick = () => setPage(3);
 
 /* ---------- the generator: core/seq.c, line for line ---------- */
 const mix32 = (x) => { x >>>= 0; x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0; x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0; x ^= x >>> 16; return x >>> 0; };
@@ -821,8 +885,6 @@ const LP = { off:"#232323", grey:"#4a4a4a", white:"#f4f4f4", red:"#ff2a2a", redD
   amber:"#ffd21f", amberDim:"#6a5808", green:"#2aff4a", greenDim:"#145a1e", cyan:"#30e0ff", cyanDim:"#105866", blue:"#3a5cff", magenta:"#ff40c0", magentaDim:"#661a4e" };
 const DRUMCOL = [LP.red, LP.amber, LP.cyan, LP.magenta], DRUMDIM = [LP.redDim, LP.amberDim, LP.cyanDim, LP.magentaDim];
 const DRUMS = ["Kick", "Snare", "Hat", "Perc"];
-const drums = [[], [], [], []];
-for (let k = 0; k < 16; k++) { drums[0][k] = k % 4 === 0 ? 4 : 0; drums[1][k] = (k === 4 || k === 12) ? 4 : 0; drums[2][k] = (k % 4 === 2) ? 4 : 0; drums[3][k] = 0; }
 const dmute = [false, false, false, false];
 const S = { mode:0, shift:false, running:false, step:-1, slotHeld:-1, drumSlot:0, drumQueued:0 };
 const lpEl = document.getElementById("lp");
@@ -866,7 +928,7 @@ function paintLP() {
     row.forEach((c, x) => setPad(`g${x},7`, c));
   } else if (S.mode === 2) {
     for (let d = 0; d < 4; d++) for (let k = 0; k < 16; k++) {
-      const p = drums[d][k]; let c = p === 0 ? LP.off : p >= 3 ? DRUMCOL[d] : DRUMDIM[d];
+      const [p, gen] = drumProb(d, k); let c = k >= DR.steps[d] ? LP.off : p === 0 ? LP.off : gen ? LP.grey : p >= 3 ? DRUMCOL[d] : DRUMDIM[d];
       if (S.running && S.step % 16 === k) c = LP.white;
       setPad(`g${k % 8},${d * 2 + (k >> 3)}`, c);
     }
@@ -912,7 +974,7 @@ function lpInfo(key) {
       else if (y === 6) { t = `Slot ${x + 1}`; s = "tap: queue · on the Launchpad, hold + tap another: copy"; d = "Green is playing, amber is queued for the next bar. On the real Launchpad, hold one slot and tap another to copy the held one into it."; }
       else if (y === 7) { [t, d] = ACTIONS[x]; s = "action row"; }
       else { t = "—"; s = ""; d = "Not used in this mode."; }
-    } else if (S.mode === 2) { const dr = y >> 1, k = (y % 2) * 8 + x; t = `${DRUMS[dr]} · step ${k + 1}`; s = "tap: on / off · shift+tap: less likely"; d = "Bright is 75–100 %, dim is 25–50 %. The white pad is the playhead."; }
+    } else if (S.mode === 2) { const dr = y >> 1, k = (y % 2) * 8 + x; t = `${DRUMS[dr]} · step ${k + 1}`; s = "tap: on / off · shift+tap: less likely"; d = "Bright is 75–100 %, dim is 25–50 %, grey is a generated hit (tap to program it). The white pad is the playhead."; }
     else { if (y < 2) { t = `${y === 0 ? "Bass" : "Lead"} slot ${x + 1}`; } else if (y < 4) { t = `Drum pattern ${(y - 2) * 8 + x + 1}`; } else t = "—"; s = y < 4 ? "tap: queue for the next bar" : ""; d = y < 4 ? "Green is playing, amber is waiting for the bar line." : "Not used in this mode."; }
   }
   lpT.textContent = t; lpS.textContent = s || " "; lpD.textContent = d;
@@ -938,8 +1000,9 @@ function lpPress(key) {
         else if (x === 7) V[v].mute = !V[v].mute;
       }
     } else if (S.mode === 2) {
-      const d = y >> 1, k = (y % 2) * 8 + x, p = drums[d][k];
-      drums[d][k] = S.shift ? (p <= 1 ? 4 : p - 1) : (p ? 0 : 4);
+      const d = y >> 1, k = (y % 2) * 8 + x, p = DR.prob[d][k];
+      DR.prob[d][k] = S.shift ? (p <= 1 ? 4 : p - 1) : (p ? 0 : 4);
+      drawDrums();
     } else {
       if (y === 0) queueSlot(0, x); else if (y === 1) queueSlot(1, x);
       else if (y < 4) { S.drumQueued = (y - 2) * 8 + x; if (!S.running) S.drumSlot = S.drumQueued; }
@@ -971,13 +1034,104 @@ function togglePlay() {
 const KEYLIST = [[LP.green, "a note, a playing slot"], [LP.amber, "a slide; a slot queued for the next bar"], [LP.grey, "a rest, an empty slot"], [LP.red, "the playhead; a mute"]];
 lpKey.innerHTML = KEYLIST.map(([c, t]) => `<i style="background:${c}"></i><span>${t}</span>`).join("");
 
+/* ---------- drums: core/seq.c's drum generator, line for line ---------- */
+function seqEuclid(hits, n, rot, k) {
+  if (n < 1 || hits < 1) return false;
+  if (hits >= n) return true;
+  const i = ((k - rot) % n + n) % n;
+  return (i * hits) % n < hits;
+}
+const EUCLID_ROT = [[0, 4, 2, 3], [0, 4, 0, 6], [0, 2, 1, 5], [0, 6, 3, 1]];
+const BAND = [
+  [[0, .30], [.25, .40], [.45, .55]],
+  [[0, .25], [.30, .50], [.45, .55]],
+  [[0, .30], [.20, .40], [.40, .60]],
+  [[0, 1], [0, 1], [0, 1]],
+];
+const f32 = Math.fround;
+function drumGenerated(dr, d, k) {
+  const amt = Math.min(1, Math.max(0, dr.gen[d]));
+  if (amt <= 0) return false;
+  const style = dr.style % 8, n = dr.steps[d] || 16;
+  if (style >= 4) { const hits = Math.floor(f32(f32(amt * n) + .5)); return seqEuclid(hits, n, EUCLID_ROT[style - 4][d], k); }
+  const seed = mix32((0xD5A10000 + style * 0x10000 + d * 0x100 + k) >>> 0);
+  const kk = k % 16;
+  const cls = d === 0 ? (kk % 4 === 0 ? 0 : kk % 2 === 0 ? 1 : 2) : d === 1 ? (kk % 8 === 4 ? 0 : kk % 2 === 0 ? 1 : 2) : d === 2 ? (kk % 4 === 2 ? 0 : kk % 2 === 0 ? 1 : 2) : 0;
+  const [lo, span] = BAND[d][cls];
+  return f32(f32(lo) + f32(f32(unit(seed, F_HIT)) * f32(span))) < f32(amt);
+}
+const DR = { prob:[[], [], [], []], steps:[16, 16, 16, 16], gen:[0, 0, 0, 0], style:4, pat:1 };
+function defaultBeat() { for (let k = 0; k < 64; k++) { DR.prob[0][k] = k < 16 && k % 4 === 0 ? 4 : 0; DR.prob[1][k] = (k === 4 || k === 12) ? 4 : 0; DR.prob[2][k] = k < 16 && k % 4 === 2 ? 4 : 0; DR.prob[3][k] = 0; } DR.steps = [16, 16, 16, 16]; }
+defaultBeat();
+DR.gen = [0, 0, 0, .19]; /* a little perc on top, Euclid 1 */
+function drumProb(d, k) {
+  const p = DR.prob[d][k] || 0;
+  if (p < 4 && drumGenerated(DR, d, k)) return [4, p === 0];
+  return [p, false];
+}
+const STYLE_NAMES = ["Gen 1", "Gen 2", "Gen 3", "Gen 4", "Euclid 1", "Euclid 2", "Euclid 3", "Euclid 4"];
+const DCOL = ["#ff3030", "#ffd21f", "#30e0ff", "#ff40c0"], DDIM = ["#6a1818", "#6a5808", "#105866", "#661a4e"];
+const dgrid = document.getElementById("dgrid");
+const dcells = [];
+(function buildDrumGrid() {
+  dgrid.appendChild(document.createElement("span"));
+  for (let k = 0; k < 16; k++) { const h = document.createElement("span"); h.className = "hd"; h.textContent = k % 4 === 0 ? (k / 4 + 1) : "·"; dgrid.appendChild(h); }
+  for (let d = 0; d < 4; d++) {
+    const n = document.createElement("span"); n.className = "dn"; n.textContent = DRUMS[d]; dgrid.appendChild(n);
+    dcells[d] = [];
+    for (let k = 0; k < 16; k++) {
+      const b = document.createElement("button"); b.className = "st" + (k % 4 === 0 ? " q" : "");
+      b.setAttribute("aria-label", `${DRUMS[d]} step ${k + 1}`);
+      b.addEventListener("click", (e) => {
+        const p = DR.prob[d][k];
+        DR.prob[d][k] = e.shiftKey ? (p <= 1 ? 4 : p - 1) : (p ? 0 : 4);
+        drawDrums(); paintLP();
+      });
+      dgrid.appendChild(b); dcells[d][k] = b;
+    }
+  }
+  const sel = document.getElementById("dPat");
+  for (let i = 1; i <= 16; i++) { const o = document.createElement("option"); o.value = i; o.textContent = i; sel.appendChild(o); }
+  sel.addEventListener("change", () => { DR.pat = +sel.value; drawDrums(); });
+})();
+const PCHAR = [".", "1", "2", "3", "x"];
+function drumText() {
+  const lines = [`pattern ${DR.pat}`];
+  for (let d = 0; d < 4; d++) {
+    let t = "";
+    for (let k = 0; k < DR.steps[d]; k++) { t += PCHAR[DR.prob[d][k] || 0]; if (k % 4 === 3 && k < DR.steps[d] - 1) t += " "; }
+    lines.push(DRUMS[d].toLowerCase().padEnd(6) + t);
+  }
+  return lines.join("\n") + "\n";
+}
+function drawDrums() {
+  for (let d = 0; d < 4; d++) for (let k = 0; k < 16; k++) {
+    const [p, gen] = drumProb(d, k), b = dcells[d][k];
+    b.style.background = p === 0 ? "#262019" : gen ? "#6b645c" : p >= 3 ? DCOL[d] : DDIM[d];
+  }
+  dStyleV.textContent = STYLE_NAMES[DR.style];
+  for (let d = 0; d < 4; d++) document.getElementById(`dA${d}V`).textContent = DR.style >= 4 ? `E(${Math.floor(Math.fround(Math.fround(DR.gen[d] * DR.steps[d]) + .5))},${DR.steps[d]})` : Math.round(DR.gen[d] * 100) + " %";
+  dText.textContent = drumText();
+}
+dStyle.value = DR.style;
+for (let d = 0; d < 4; d++) { const el2 = document.getElementById(`dA${d}`); el2.value = DR.gen[d]; el2.addEventListener("input", (e) => { DR.gen[d] = +e.target.value; drawDrums(); paintLP(); }); }
+dStyle.addEventListener("input", (e) => { DR.style = +e.target.value; drawDrums(); paintLP(); });
+dClear.onclick = () => { for (let d = 0; d < 4; d++) DR.prob[d].fill(0); drawDrums(); paintLP(); };
+dDefault.onclick = () => { defaultBeat(); drawDrums(); paintLP(); };
+dCopy.onclick = () => {
+  const t = drumText();
+  const done = () => { dCopy.textContent = "Copied"; setTimeout(() => dCopy.textContent = "Copy", 1400); };
+  const pick = () => { const r = document.createRange(); r.selectNodeContents(dText); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); dCopy.textContent = "Selected: ⌘C"; };
+  try { navigator.clipboard.writeText(t).then(done, pick); } catch (e) { pick(); }
+};
+
 /* ---------- Launch Control XL ---------- */
 (function () {
   const box = document.getElementById("xlBox"); let h = "";
   const row = (cls, vals) => vals.map(v => `<div class="kn ${cls}" style="--r:${-135 + v * 270}deg"></div>`).join("");
   h += `<div class="rl">Knobs 1 · bass</div>` + row("b", [.6,.4,.2,.15,.1,.5,0,1]);
   h += `<div class="rl">Knobs 2 · lead</div>` + row("l", [.35,.6,.1,.1,.3,.5,.5,1]);
-  h += `<div class="rl">Knobs 3 · not used</div>` + row("off", [.5,.5,.5,.5,.5,.5,.5,.5]);
+  h += `<div class="rl">Knobs 3 · drums: kick, snare, hat, perc, style, pattern</div>` + row("d", [.25,.12,.25,0,.6,0]) + row("off", [.5,.5]);
   h += `<div class="rl">Faders · not used</div>` + Array(8).fill(`<div class="fd"></div>`).join("");
   const up = [["ROLL","#3a9a3a"],["MUT","#3a9a3a"],["UNDO","#a08a20"],["LOCK","#ffd21f"],["ROLL","#3a9a3a"],["MUT","#3a9a3a"],["UNDO","#a08a20"],["LOCK","#a08a20"]];
   const lo = [["BASS","#2aff4a"],["LEAD","#2aff4a"],["KICK","#2aff4a"],["SNARE","#2aff4a"],["HAT","#2aff4a"],["PERC","#ff2a2a"],["",""],["PLAY","#2aff4a"]];
@@ -1009,5 +1163,5 @@ lpKey.innerHTML = KEYLIST.map(([c, t]) => `<i style="background:${c}"></i><span>
   el("text", { x:230, y:233, fill:"#9a9088", "font-size":9, "font-family":"JetBrains Mono, monospace", "text-anchor":"middle" }, s).textContent = "held = while pressed · tapped = once";
 })();
 
-syncKnobs(); drawLane(); paintLP();
+syncKnobs(); drawLane(); drawDrums(); paintLP();
 </script>
