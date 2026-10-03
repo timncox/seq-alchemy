@@ -7,7 +7,7 @@ last_touched: 2026-09-26
 
 Generative + step sequencer firmware for the Hermetic Alchemy Lab V2, played
 from a Launchpad Mini MK3, a Launch Control XL and a Haute42 gamepad (XInput)
-over USB host, through a powered hub. Replaces Tim's Oxi One. Design:
+over USB host, through a powered hub. Design:
 `~/tim-os/docs/alchemy-sequencer-design.md`. The name is a placeholder
 (`/rename-project`).
 
