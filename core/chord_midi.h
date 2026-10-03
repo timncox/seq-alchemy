@@ -16,9 +16,11 @@
  *
  * TRANSPORT. Notes sound only while seq_t.running. Stop (the player's, or
  * a lost J1 clock) switches every held note off. With the clock on, Start
- * (0xFA) goes out when the transport starts or rewinds to the top while
- * running (a J2 reset), Stop (0xFC) when it stops, and 0xF8 at 24 PPQN from
- * the transport position, so it follows J1 when seq does.
+ * (0xFA) goes out when the transport starts, when it rewinds to the top
+ * while running (a J2 reset), and when the progression loops back to its
+ * first chord (on that bar line, before its clock; the clock count carries
+ * on); Stop (0xFC) when it stops; 0xF8 at 24 PPQN from the transport
+ * position, so it follows J1 when seq does.
  *
  * NO STUCK NOTES. Every note-on is answered by its note-off: a change is
  * emitted whole or not at all (if the ring has no room it waits for the
@@ -66,6 +68,7 @@ typedef struct {
     bool     clock_started; /* a 0xFA went out with no 0xFC after it */
     int32_t  clock_tick;    /* 24-PPQN ticks sent since the start */
     double   last_pos;
+    double   last_total;    /* the progression's length at last_pos */
     uint32_t dropped;       /* changes put off for want of ring room */
 } chord_midi_t;
 

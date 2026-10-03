@@ -268,6 +268,87 @@ static void test_clock(void)
     CHECK(g_n == 1 && g_out[0] == 0xFC, "clock off -> 0xFC only (%zu)", g_n);
 }
 
+static int nth_index(uint8_t x, int n) /* where the n-th (1-based) x is, -1 */
+{
+    for(size_t i = 0; i < g_n; i++)
+        if(g_out[i] == x && --n == 0)
+            return (int)i;
+    return -1;
+}
+
+static int count_before(uint8_t x, int end)
+{
+    int c = 0;
+    for(int i = 0; i < end; i++)
+        c += g_out[i] == x;
+    return c;
+}
+
+static void test_loop_start(void)
+{
+    /* C Am F G, a bar each = 4 bars = 384 clocks. The loop back to C gets a
+     * Start on the bar line: after G's offs, before the bar's clock and C's
+     * note-ons. The clock count carries on. */
+    setup(CHORD_MIDI_CLOCK);
+    seq_play(&S);
+    run(0, 8000 + 100); /* 120 BPM: the loop is at 8000 ms */
+    CHECK(count_byte(0xFA) == 2, "start + loop: %d starts", count_byte(0xFA));
+    int fa = nth_index(0xFA, 2);
+    CHECK(fa > 0 && count_before(0xF8, fa) == 384, "384 clocks before the loop Start (%d)",
+          fa > 0 ? count_before(0xF8, fa) : -1);
+    CHECK(fa > 0 && g_out[fa - 3] == 0x80 && g_out[fa + 1] == 0xF8 && g_out[fa + 2] == 0x90,
+          "offs, Start, the bar's clock, then the ons");
+    int f8 = count_byte(0xF8);
+    CHECK(f8 >= 384 + 4 && f8 <= 384 + 6, "the clock carries on (%d)", f8);
+
+    /* Four loops: four more Starts, one per loop. */
+    run(8100, 4 * 8000 + 100);
+    CHECK(count_byte(0xFA) == 5, "a Start per loop: %d", count_byte(0xFA));
+
+    /* Notes mode: no Start at the loop. */
+    setup(CHORD_MIDI_NOTES);
+    seq_play(&S);
+    run(0, 8100);
+    CHECK(count_byte(0xFA) == 0, "notes only: no Start");
+
+    /* One chord: the progression is a bar, a Start every bar. */
+    setup(CHORD_MIDI_CLOCK);
+    S.prog.count = 1;
+    seq_play(&S);
+    run(0, 3 * 2000 + 100);
+    CHECK(count_byte(0xFA) == 4, "one-bar progression: start + 3 loops (%d)", count_byte(0xFA));
+
+    /* A J2 reset is a restart, not also a loop: one Start, clock from 0. */
+    setup(CHORD_MIDI_CLOCK);
+    seq_play(&S);
+    run(0, 5000);
+    g_n = 0;
+    seq_reset_edge(&S, 5000 * 1000u);
+    run(5000, 5100);
+    CHECK(count_byte(0xFA) == 1, "reset mid-loop: one Start (%d)", count_byte(0xFA));
+
+    /* A reset right at the loop's bar: still one Start. */
+    setup(CHORD_MIDI_CLOCK);
+    seq_play(&S);
+    run(0, 8000);
+    g_n = 0;
+    seq_reset_edge(&S, 8000 * 1000u);
+    run(8000, 8100);
+    CHECK(count_byte(0xFA) == 1, "reset on the loop: one Start (%d)", count_byte(0xFA));
+
+    /* Shortening the progression mid-way is not a loop; the new, shorter
+     * loop then gets its Starts. */
+    setup(CHORD_MIDI_CLOCK);
+    seq_play(&S);
+    run(0, 5000); /* bar 3 of 4 */
+    g_n = 0;
+    S.prog.count = 2; /* 2 bars: 5000 ms is now inside bar 1 of loop 2 */
+    run(5000, 5100);
+    CHECK(count_byte(0xFA) == 0, "edited length: no Start (%d)", count_byte(0xFA));
+    run(5100, 8100); /* the 2-bar loop comes round at 8000 */
+    CHECK(count_byte(0xFA) == 1, "the shorter loop: Start (%d)", count_byte(0xFA));
+}
+
 static void test_external_clock_lost(void)
 {
     /* Following J1 at 16ths; the clock stops: transport stops, notes off. */
@@ -594,6 +675,7 @@ int main(void)
     test_change_lands_on_bar();
     test_channel_and_off();
     test_clock();
+    test_loop_start();
     test_external_clock_lost();
     test_full_ring_waits();
     test_no_stuck_notes();
