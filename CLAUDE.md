@@ -37,6 +37,12 @@ Gotchas:
   imported at power-up only when its CRC changed (`drums_file_crc`), and
   the file stays on the card. The manual (`docs/`, `python3 docs/build.py`)
   ports the generators to JS: keep them in step with seq.c.
+- Chord out (Settings pot 2, default Off; channel on pot 5): the current
+  chord as MIDI on the rear header, USART1 TX = header pin 8, for Belt on
+  a second Lab. `core/chord_midi.[ch]` (tested) makes the bytes,
+  `alchemy/src/midi_out.cpp` is the only file that touches the UART (the
+  alchemy-lab emulator swaps in its own). Cable: crossed TX/RX + grounds,
+  never a straight ribbon -- the header carries +-12 V.
 - Persistence is `seq_state_write/read` (field by field, clamped on read);
   bump `SEQ_STATE_VERSION` when the layout changes.
 
