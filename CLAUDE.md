@@ -21,8 +21,8 @@ over USB host, through a powered hub. Design:
 
 `core/` is HAL-free C99 (same shape as `~/tim-os/relay`). `alchemy/` is the
 Lab firmware; its header comment in `src/seq_alchemy.cpp` is the manual:
-jack map, pages, and the Launchpad / XL / Haute42 layouts. Home preset slot
-11. `picker`, `launchpad`, `usbh_hub_midi`, `usb_shared` and the `.lds` are
+jack map, pages, and the Launchpad / XL / Haute42 layouts. Home preset slot 5
+(6-15 belong to the other firmwares; 11 is Plaits). `picker`, `launchpad`, `usbh_hub_midi`, `usb_shared` and the `.lds` are
 copies from mark-alchemy (branch track-page) -- fix in all the copies.
 
 Gotchas:

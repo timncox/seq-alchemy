@@ -264,11 +264,14 @@ static Pager       pager = Pager(kNumAppPages, kNumPots)
 
 /*
  * This firmware's own preset slot. Every Alchemy firmware in the family
- * keeps its working state in a slot of its own -- seq 11, Smack 12, Mark 13,
+ * keeps its working state in a slot of its own -- seq 5, Meld 6, Warps 7,
+ * Clouds 8, Elements 9, Marbles 10, Plaits 11, Smack 12, Mark 13,
  * Belt 14, Relay 15 -- so switching firmware through the SD picker does not
- * reset the one you left. Slots 0-10 are for presets saved by hand.
+ * reset the one you left. Slots 0-4 are for presets saved by hand. (seq was
+ * on 11 until 2026-10-02, which is Plaits' -- the two would have wiped each
+ * other's state on a shared card.)
  */
-static constexpr uint8_t kHomeSlot = 11u;
+static constexpr uint8_t kHomeSlot = 5u;
 static Presets     presets(hw.seed.qspi);
 static Settings    settings(hw, &pager);
 static SdCard      sd;
