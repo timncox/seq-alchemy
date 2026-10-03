@@ -464,8 +464,131 @@ static void test_full_ring_waits(void)
           "room again: the chord goes out whole");
 }
 
+/* ------------------------------------------------------------ CV */
+
+static chord_cv_t C;
+
+/* Run from ms a to b; returns the volts at the end and how many times the
+ * value changed on the way. */
+static float run_cv(uint32_t a, uint32_t b, int mode, int *changes)
+{
+    seq_out_t o;
+    float     v = C.volts, last = v;
+    for(uint32_t ms = a; ms < b; ms++)
+    {
+        seq_process(&S, ms * 1000u, &o);
+        v = chord_cv_update(&C, &S, mode);
+        if(changes && v != last)
+            (*changes)++;
+        last = v;
+    }
+    return v;
+}
+
+static bool near(float a, float b) { return a > b - 1e-6f && a < b + 1e-6f; }
+
+static void test_cv(void)
+{
+    /* C major I - vi - IV - V: roots C A F G = 0, 9, 5, 7 twelfths. */
+    setup(CHORD_MIDI_OFF);
+    chord_cv_init(&C, &S);
+    CHECK(near(C.volts, 0.f), "boot: chord 1's root (%f)", C.volts);
+    seq_play(&S);
+    const float want[5] = {0.f, 9.f / 12, 5.f / 12, 7.f / 12, 0.f};
+    for(int bar = 0; bar < 5; bar++)
+    {
+        int ch = 0;
+        run_cv(bar * 2000u, bar * 2000u + 2, CHORD_CV_ROOT, NULL); /* the change */
+        float v = run_cv(bar * 2000u + 2, bar * 2000u + 2000, CHORD_CV_ROOT, &ch);
+        CHECK(near(v, want[bar]), "bar %d: %f V, want %f", bar + 1, v, want[bar]);
+        CHECK(ch == 0, "bar %d: steady within the bar (%d changes)", bar + 1, ch);
+    }
+    /* The change lands on the bar line: 1999 ms is still C, 2001 is Am. */
+    setup(CHORD_MIDI_OFF);
+    chord_cv_init(&C, &S);
+    seq_play(&S);
+    CHECK(near(run_cv(0, 2000, CHORD_CV_ROOT, NULL), 0.f), "1999 ms: C");
+    CHECK(near(run_cv(2000, 2002, CHORD_CV_ROOT, NULL), 0.75f), "2001 ms: A");
+
+    /* Key change while running: up a tone, the vi of D is B. */
+    S.prog.root = 2;
+    CHECK(near(run_cv(2002, 2003, CHORD_CV_ROOT, NULL), 11.f / 12), "key D: B");
+
+    /* A minor default progression: i VI III VII = A F C G. Key 9 wraps. */
+    seq_init(&S, 1);
+    for(int c = 0; c < 4; c++)
+    {
+        const float am[4] = {9.f / 12, 5.f / 12, 0.f, 7.f / 12};
+        CHECK(near(chord_cv_root_volts(&S.prog, c), am[c]), "A minor chord %d", c);
+    }
+    /* Every key, scale, degree: inside 0 .. 11/12 and on a semitone. */
+    int bad = 0;
+    for(int root = 0; root < 12; root++)
+        for(int sc = 0; sc < SEQ_SCALE_COUNT; sc++)
+            for(int deg = -7; deg <= 13; deg++)
+            {
+                S.prog.root = (uint8_t)root;
+                S.prog.scale = (uint8_t)sc;
+                S.prog.chord[0].degree = (int8_t)deg;
+                float v = chord_cv_root_volts(&S.prog, 0);
+                float k = v * 12.f;
+                if(v < 0.f || v > 11.f / 12 + 1e-6f || !near(k, (float)(int)(k + 0.5f)))
+                    bad++;
+            }
+    CHECK(bad == 0, "%d roots off the 1/12 V grid", bad);
+
+    /* Stop holds; key edits while stopped wait; play goes back to chord 1. */
+    setup(CHORD_MIDI_OFF);
+    chord_cv_init(&C, &S);
+    seq_play(&S);
+    run_cv(0, 4100, CHORD_CV_ROOT, NULL); /* in bar 3: F */
+    seq_stop(&S);
+    int ch = 0;
+    float v = run_cv(4100, 6000, CHORD_CV_ROOT, &ch);
+    CHECK(near(v, 5.f / 12) && ch == 0, "stopped: F held (%f, %d changes)", v, ch);
+    S.prog.root = 7;
+    CHECK(near(run_cv(6000, 6100, CHORD_CV_ROOT, NULL), 5.f / 12), "stopped: key edit waits");
+    seq_play(&S);
+    CHECK(near(run_cv(6100, 6102, CHORD_CV_ROOT, NULL), 7.f / 12), "play: G major's I = G");
+
+    /* J1 clock lost: holds too. */
+    setup(CHORD_MIDI_OFF);
+    chord_cv_init(&C, &S);
+    S.clock_ppqn = 4;
+    seq_out_t o;
+    for(uint32_t ms = 0; ms < 2600; ms++)
+    {
+        if(ms % 125 == 0)
+            seq_clock_edge(&S, ms * 1000u);
+        seq_process(&S, ms * 1000u, &o);
+        chord_cv_update(&C, &S, CHORD_CV_ROOT);
+    }
+    CHECK(S.running && near(C.volts, 0.75f), "J1: bar 2, A");
+    ch = 0;
+    v  = run_cv(2600, 2600 + SEQ_CLOCK_LOST_MS + 500, CHORD_CV_ROOT, &ch);
+    CHECK(!S.running && near(v, 0.75f) && ch == 0, "clock lost: A held");
+
+    /* REF: 0 V, and the root comes back after. */
+    CHECK(near(chord_cv_update(&C, &S, CHORD_CV_REF), 0.f), "ref = 0 V");
+    CHECK(near(chord_cv_update(&C, &S, CHORD_CV_ROOT), 0.75f), "ref left: root again");
+
+    /* The Chord out choices. */
+    const uint8_t mm[CHORD_OUT_CHOICES] = {0, 1, 2, 0, 2, 0}, cm[CHORD_OUT_CHOICES] = {0, 0, 0, 1, 1, 2};
+    int wrong = 0;
+    for(int i = 0; i < CHORD_OUT_CHOICES; i++)
+    {
+        uint8_t m, c;
+        chord_out_modes(i, &m, &c);
+        wrong += m != mm[i] || c != cm[i];
+    }
+    uint8_t m = 9, c = 9;
+    chord_out_modes(77, &m, &c);
+    CHECK(wrong == 0 && m == CHORD_MIDI_OFF && c == CHORD_CV_OFF, "chord out choices");
+}
+
 int main(void)
 {
+    test_cv();
     test_voicing();
     test_progression_bytes();
     test_change_lands_on_bar();

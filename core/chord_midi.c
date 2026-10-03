@@ -157,3 +157,43 @@ void chord_midi_update(chord_midi_t *m, const seq_t *s, chord_midi_ring_t *r)
     m->clock_tick    = clocked ? tick + clocks : 0;
     m->last_pos      = s->pos;
 }
+
+/* ---------------------------------------------------------------- CV */
+
+void chord_out_modes(int choice, uint8_t *midi_mode, uint8_t *cv_mode)
+{
+    static const uint8_t kMidi[CHORD_OUT_CHOICES] = {
+        CHORD_MIDI_OFF, CHORD_MIDI_NOTES, CHORD_MIDI_CLOCK,
+        CHORD_MIDI_OFF, CHORD_MIDI_CLOCK, CHORD_MIDI_OFF};
+    static const uint8_t kCv[CHORD_OUT_CHOICES] = {
+        CHORD_CV_OFF, CHORD_CV_OFF, CHORD_CV_OFF,
+        CHORD_CV_ROOT, CHORD_CV_ROOT, CHORD_CV_REF};
+    if(choice < 0 || choice >= CHORD_OUT_CHOICES)
+        choice = CHORD_OUT_OFF;
+    *midi_mode = kMidi[choice];
+    *cv_mode   = kCv[choice];
+}
+
+float chord_cv_root_volts(const seq_prog_t *pr, int ci)
+{
+    if(ci < 0 || ci >= SEQ_MAX_CHORDS)
+        ci = 0;
+    int pc = (pr->root + seq_degree_semis(pr->scale, pr->chord[ci].degree)) % 12;
+    if(pc < 0)
+        pc += 12;
+    return (float)pc / 12.0f;
+}
+
+void chord_cv_init(chord_cv_t *c, const seq_t *s)
+{
+    c->volts = chord_cv_root_volts(&s->prog, seq_chord_index(s));
+}
+
+float chord_cv_update(chord_cv_t *c, const seq_t *s, int cv_mode)
+{
+    if(cv_mode == CHORD_CV_REF)
+        return 0.0f; /* the held root is kept for when REF is left */
+    if(s->running)
+        c->volts = chord_cv_root_volts(&s->prog, seq_chord_index(s));
+    return c->volts;
+}
