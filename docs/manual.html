@@ -1,4 +1,4 @@
-<title>seq for Alchemy Lab</title>
+<title>Seq for Alchemy Lab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -186,6 +186,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
   <a class="s" href="#clock">Clock</a>
   <a class="s" href="#setup">Setup</a>
   <a class="s" href="#status">Status</a>
+  
 </div></nav>
 
 <header id="top"><div class="wrap">
@@ -198,6 +199,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
         <span class="chip ok">builds clean</span>
         <span class="chip ok">67,382 native checks pass</span>
         <span class="chip no">not flashed yet</span>
+        
       </div>
     </div>
     <div class="heroplate">
@@ -331,6 +333,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <div class="rule"><h4>On the pots, no controller needed</h4><p>B1 to the DRUMS page. KICK, SNARE, HAT and PERC set how much the generator adds; STYLE picks Gen 1–4 or Euclid 1–4; PATTERN picks which of the 16 plays, at the next bar. Each pattern keeps its own.</p></div>
     <div class="rule"><h4>From the Mac: /seq/drums.txt</h4><p>Write patterns as text (the box above does it for you), put the file on the card, power-cycle. The module reads it at power-up when it has changed, writes only the patterns it names, and switches their generator off so the file is what plays. B2 flashes green when it took it, red when a line made no sense (nothing changes then). The file stays on the card.</p></div>
     <div class="rule"><h4>Getting the file onto the card</h4><p>Pull the card and copy it on from the Mac. Or, in Mac mode (B1 held at power-up), without touching the card: <code>node tools/hostlink-fs.mjs mkdir /seq</code> then <code>node tools/hostlink-fs.mjs put drums.txt /seq/drums.txt --overwrite</code>.</p></div>
+    
     <div class="rule"><h4>Drum presets</h4><p>A preset already keeps the drums: Settings (B2+B3 for 2 s), pots 2 and 3, saves or loads slots 0–10, and so does the web programmer. A preset is the whole state, both voices included. To keep just drum ideas, use the 16 patterns, or keep several drums.txt files on the Mac.</p></div>
     <div class="rule"><h4>Loop length per drum</h4><p>In the file, a line's length is that drum's loop, 1 to 64 steps: a 16-step kick with a 12-step hat gives polymeter. The Launchpad edits the first 16 steps.</p></div>
   </div>
@@ -410,6 +413,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <li>It boots in Launchpad mode. For the web programmer, hold B1 while powering up.</li>
     <li>Meter J3–J6 before patching a synth: fresh flash, B2 to play, and the bass should sit between 1 and 3 V.</li>
   </ol>
+  
 </div></section>
 
 <section id="status"><div class="wrap">
@@ -423,12 +427,13 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
         <li>The firmware builds with no warnings; fast memory at 59%.</li>
         <li>Saving round-trips: a reloaded state plays identically, and a corrupt one is clamped into range.</li>
       </ul>
+      
     </div>
     <div>
       <h3 style="color:var(--acc)">Not yet tried on hardware</h3>
       <ul class="list">
         <li>Clock and reset on J1/J2 through the AC-coupled inputs (1 V threshold).</li>
-        <li>The XL's LED colours; the index map is unverified in Mark too.</li>
+        <li>The Launch Control XL's button colours.</li>
         <li>All three controllers on the hub at once.</li>
         <li>Reading /seq/drums.txt from a real card.</li>
         <li>Not built yet: the CHORDS page (the progression is fixed for now) and autotune in TUNE mode.</li>

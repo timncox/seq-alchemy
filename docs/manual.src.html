@@ -1,4 +1,4 @@
-<title>seq for Alchemy Lab</title>
+<title>Seq for Alchemy Lab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -186,6 +186,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
   <a class="s" href="#clock">Clock</a>
   <a class="s" href="#setup">Setup</a>
   <a class="s" href="#status">Status</a>
+  <!--@public--><a class="s" href="../" style="margin-left:auto;color:var(--acc)">All instruments ↗</a><!--@/public-->
 </div></nav>
 
 <header id="top"><div class="wrap">
@@ -195,9 +196,11 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
       <h1 class="title">seq<em>a generative sequencer for the Alchemy Lab</em></h1>
       <p class="tagline">Two generated voices that follow your chords, four drum triggers, and a Launchpad to play it all.</p>
       <div class="status">
-        <span class="chip ok">builds clean</span>
+        <!--@private--><span class="chip ok">builds clean</span>
         <span class="chip ok">67,382 native checks pass</span>
-        <span class="chip no">not flashed yet</span>
+        <span class="chip no">not flashed yet</span><!--@/private-->
+        <!--@public--><span class="chip ok">tested on a computer</span>
+        <span class="chip no">not yet on a module</span><!--@/public-->
       </div>
     </div>
     <div class="heroplate">
@@ -330,7 +333,8 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <div class="rule"><h4>On the Launchpad</h4><p>DRUMS mode: four drums, two rows each, 16 steps. Tap for on or off; SHIFT and tap for 75, 50, 25 %. Grey pads are generated; tapping one programs it.</p></div>
     <div class="rule"><h4>On the pots, no controller needed</h4><p>B1 to the DRUMS page. KICK, SNARE, HAT and PERC set how much the generator adds; STYLE picks Gen 1–4 or Euclid 1–4; PATTERN picks which of the 16 plays, at the next bar. Each pattern keeps its own.</p></div>
     <div class="rule"><h4>From the Mac: /seq/drums.txt</h4><p>Write patterns as text (the box above does it for you), put the file on the card, power-cycle. The module reads it at power-up when it has changed, writes only the patterns it names, and switches their generator off so the file is what plays. B2 flashes green when it took it, red when a line made no sense (nothing changes then). The file stays on the card.</p></div>
-    <div class="rule"><h4>Getting the file onto the card</h4><p>Pull the card and copy it on from the Mac. Or, in Mac mode (B1 held at power-up), without touching the card: <code>node tools/hostlink-fs.mjs mkdir /seq</code> then <code>node tools/hostlink-fs.mjs put drums.txt /seq/drums.txt --overwrite</code>.</p></div>
+    <!--@private--><div class="rule"><h4>Getting the file onto the card</h4><p>Pull the card and copy it on from the Mac. Or, in Mac mode (B1 held at power-up), without touching the card: <code>node tools/hostlink-fs.mjs mkdir /seq</code> then <code>node tools/hostlink-fs.mjs put drums.txt /seq/drums.txt --overwrite</code>.</p></div><!--@/private-->
+    <!--@public--><div class="rule"><h4>Getting the file onto the card</h4><p>Take the microSD card out of the Lab, make a folder called <code>seq</code> at the top, and save the text as <code>drums.txt</code> inside it. Put the card back and power the Lab up.</p></div><!--@/public-->
     <div class="rule"><h4>Drum presets</h4><p>A preset already keeps the drums: Settings (B2+B3 for 2 s), pots 2 and 3, saves or loads slots 0–10, and so does the web programmer. A preset is the whole state, both voices included. To keep just drum ideas, use the 16 patterns, or keep several drums.txt files on the Mac.</p></div>
     <div class="rule"><h4>Loop length per drum</h4><p>In the file, a line's length is that drum's loop, 1 to 64 steps: a 16-step kick with a 12-step hat gives polymeter. The Launchpad edits the first 16 steps.</p></div>
   </div>
@@ -403,32 +407,42 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
     <div class="rule"><h4>Power for the controllers</h4><p>The Lab's front port gives no 5 V. Use a powered USB hub or OTG adapter in front of it; the host handles one hub level with up to three devices, which is exactly Launchpad + XL + Haute42.</p></div>
     <div class="rule"><h4>Other firmware on the same card</h4><p>The SD picker in Settings swaps firmware. Each one keeps its own preset slot (seq 5, Meld 6, Warps 7, Clouds 8, Elements 9, Marbles 10, Plaits 11, Smack 12, Mark 13, Belt 14, Relay 15), so switching away and back loses nothing.</p></div>
   </div>
-  <h3 style="font-family:var(--disp);font-weight:800;font-size:24px;margin:40px 0 0">First flash</h3>
+  <!--@private--><h3 style="font-family:var(--disp);font-weight:800;font-size:24px;margin:40px 0 0">First flash</h3>
   <ol class="steps">
     <li>Unplug anything else that is in DFU mode, then build: <code>make -C alchemy</code> in the seq-alchemy worktree gives <code>alchemy/build/seq_alchemy.bin</code>.</li>
     <li>Either hold B3 while powering the Lab (bootloader), then <code>make -C alchemy program-dfu</code>; or copy the <code>.bin</code> to <code>/alchemy</code> on the SD card and flash it from the picker.</li>
     <li>It boots in Launchpad mode. For the web programmer, hold B1 while powering up.</li>
     <li>Meter J3–J6 before patching a synth: fresh flash, B2 to play, and the bass should sit between 1 and 3 V.</li>
-  </ol>
+  </ol><!--@/private-->
+  <!--@public--><h3 style="font-family:var(--disp);font-weight:800;font-size:24px;margin:40px 0 0">Getting it</h3>
+  <p style="color:var(--soft);max-width:66ch;margin-top:12px">Seq isn't released yet. It has been built and tested on a
+    computer, and its first run on a module is next. When it's out, it installs like every other instrument on
+    <a href="../#install">the Alchemy Lab page</a>: flash the first one with Hermetic's web programmer, then carry it
+    on the card and switch to it from the picker.</p><!--@/public-->
 </div></section>
 
 <section id="status"><div class="wrap">
   <h2 class="sh">Status</h2>
-  <div class="sub">Built 2026-09-26 · branch worktree-core</div>
+  <div class="sub"><!--@private-->Built 2026-09-26 · branch worktree-core<!--@/private--><!--@public-->Firmware 0.1.0 · not yet released<!--@/public--></div>
   <div class="two" style="margin-top:0">
     <div>
       <h3 style="color:var(--ok)">Checked</h3>
-      <ul class="list">
+      <!--@private--><ul class="list">
         <li>67,382 native checks pass under AddressSanitizer and UBSan: the generator, chords, lock and undo, both clocks, drums and the drum generator, Euclidean rhythms, the drums.txt reader, gates and glide, saving and loading.</li>
         <li>The firmware builds with no warnings; fast memory at 59%.</li>
         <li>Saving round-trips: a reloaded state plays identically, and a corrupt one is clamped into range.</li>
-      </ul>
+      </ul><!--@/private-->
+      <!--@public--><ul class="list">
+        <li>The sequencer itself is checked by tens of thousands of automatic tests on a computer: the generator, chords, lock and undo, both clocks, the drums and their generator, Euclidean rhythms, the drums.txt reader, gates and glide, saving and loading.</li>
+        <li>The whole firmware runs, unchanged, in an Alchemy Lab emulator, where playing and stopping, following a clock on J1, the Launchpad, the Launch Control XL, the Haute42 and the drum file are all tested.</li>
+        <li>What it saves comes back exactly after a power cycle, and a damaged save is repaired rather than trusted.</li>
+      </ul><!--@/public-->
     </div>
     <div>
       <h3 style="color:var(--acc)">Not yet tried on hardware</h3>
       <ul class="list">
         <li>Clock and reset on J1/J2 through the AC-coupled inputs (1 V threshold).</li>
-        <li>The XL's LED colours; the index map is unverified in Mark too.</li>
+        <li>The Launch Control XL's button colours.</li>
         <li>All three controllers on the hub at once.</li>
         <li>Reading /seq/drums.txt from a real card.</li>
         <li>Not built yet: the CHORDS page (the progression is fixed for now) and autotune in TUNE mode.</li>
@@ -437,7 +451,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
   </div>
 </div></section>
 
-<footer><div class="wrap">seq-alchemy · core/seq.c + alchemy/src/seq_alchemy.cpp · drivers shared with mark-alchemy · name is a placeholder</div></footer>
+<footer><div class="wrap"><!--@private-->seq-alchemy · core/seq.c + alchemy/src/seq_alchemy.cpp · drivers shared with mark-alchemy · name is a placeholder<!--@/private--><!--@public-->Seq is firmware by Tim Cox for the Hermetic Modular Alchemy Lab, one of <a href="../">the instruments on Tim's Alchemy Lab page</a>. Hermetic Modular didn't write or test it and can't support it.<!--@/public--></div></footer>
 
 <script>
 /*GEOM*/
