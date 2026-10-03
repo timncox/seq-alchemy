@@ -25,12 +25,23 @@
  * Pitch and gate of a voice latch in the same MCP write, so a gate never
  * rises before its pitch has moved.
  *
- * Chord out (Settings, default Off): the chord playing now as MIDI notes on
- * the rear header, USART1 TX = header pin 8, 31,250 baud -- for Belt on a
- * second Lab to harmonize to. Off / MIDI (notes) / MIDI + clock (adds 0xF8
- * at 24 PPQN and start/stop). Cable: pin 8 to the other Lab's pin 7, pin 7
- * to its pin 8, plus grounds; NEVER a straight ribbon, the header carries
- * +-12 V. See midi_out.h and core/chord_midi.h.
+ * Chord out (Settings, default Off): the chord playing now, for Belt on a
+ * second Lab to harmonize to, as MIDI on the rear header and/or as one CV
+ * on J10. The choices:
+ *   Off
+ *   MIDI           the chord's notes, USART1 TX = header pin 8, 31,250 baud
+ *   MIDI + clock   plus 0xF8 at 24 PPQN and start / stop
+ *   CV             J10 = the chord's ROOT, 1 V/oct, 0 V = C, 0 .. 11/12 V;
+ *                  Belt builds the chord in ITS key and scale, so set both
+ *                  modules to the same KEY and SCALE. Changes on the bar,
+ *                  holds when stopped. J10 is then not Perc: perc is silent.
+ *   CV + MIDI      both (MIDI with clock)
+ *   CV ref         J10 holds 0 V and nothing else is sent: pick this while
+ *                  Belt runs its Learn, then go back to CV.
+ * MIDI cable: pin 8 to the other Lab's pin 7, pin 7 to its pin 8, plus
+ * grounds; NEVER a straight ribbon, the header carries +-12 V. CV cable: J10
+ * to Belt's chord input, an ordinary patch cable. See midi_out.h and
+ * core/chord_midi.h.
  *
  * The voice pots edit the CURRENT pattern slot's knobs. Each slot keeps its
  * own knobs, so when a queued slot takes over (or the Launchpad, the XL or
@@ -144,7 +155,8 @@ static const char* const kScaleLabels[SEQ_SCALE_COUNT] = {
 static const char* const kClockLabels[4] = {"1 ppqn", "2 ppqn", "16ths", "24 ppqn"};
 static const uint8_t     kClockPpqn[4]   = {1, 2, 4, 24};
 static const char* const kUsbLabels[2]   = {"Mac", "Launchpad"};
-static const char* const kChordOutLabels[CHORD_MIDI_MODES] = {"Off", "MIDI", "MIDI + clock"};
+static const char* const kChordOutLabels[CHORD_OUT_CHOICES] = {
+    "Off", "MIDI", "MIDI + clock", "CV", "CV + MIDI", "CV ref"};
 static const char* const kChannelLabels[16] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
 static const char* const kStyleLabels[SEQ_DSTYLE_COUNT] = {
@@ -298,6 +310,8 @@ static SelectorHandle s_chord_ch;
 /* Chord out: the byte ring lives in DTCM with the rest of the poll's state
  * (~300 B). */
 static chord_midi_t      g_cm;
+static chord_cv_t        g_cv;
+static uint8_t           g_cv_mode = CHORD_CV_OFF;
 static chord_midi_ring_t g_cm_ring;
 
 /* ---- selector hysteresis (see relay_alchemy.cpp) ------------------------- */
@@ -528,7 +542,9 @@ static void write_jacks(const seq_out_t& o)
         o.gate[SEQ_BASS] ? 5.f : 0.f,   o.gate[SEQ_LEAD] ? 5.f : 0.f,
         o.trig[SEQ_KICK] ? 5.f : 0.f,   o.trig[SEQ_SNARE] ? 5.f : 0.f,
         codec_volts(o.trig[SEQ_HAT] ? 5.f : 0.f),
-        codec_volts(o.trig[SEQ_PERC] ? 5.f : 0.f),
+        /* J10: perc, or the chord CV (perc silent) when Chord out has CV */
+        codec_volts(g_cv_mode != CHORD_CV_OFF ? chord_cv_update(&g_cv, &S, g_cv_mode)
+                                              : o.trig[SEQ_PERC] ? 5.f : 0.f),
     };
     for(uint8_t j = 0; j < kNumCvJacks; j++)
     {
@@ -955,11 +971,13 @@ static void OnPoll(uint32_t now)
     }
     seq_out_t o;
     seq_process(&S, us, &o);
+    /* Chord out: the choice sets the MIDI and the J10 CV modes; the CV is
+     * written with the jacks. For the MIDI, what changed goes into the ring
+     * and the ring into the UART's FIFO; the UART is only claimed once the
+     * MIDI is first switched on. */
+    chord_out_modes(s_chord_out.Value(), &g_cm.mode, &g_cv_mode);
     write_jacks(o);
 
-    /* Chord out: what changed goes into the ring, the ring into the UART's
-     * FIFO. The UART is only claimed once the output is first switched on. */
-    g_cm.mode    = s_chord_out.Value();
     g_cm.channel = s_chord_ch.Value();
     if(g_cm.mode != CHORD_MIDI_OFF) midiout::Init();
     chord_midi_update(&g_cm, &S, &g_cm_ring);
@@ -1154,11 +1172,16 @@ int main(void)
     s_chord_out = settings.Page(kSettingsMain).Pot(1)
         .Selector(kChordOutLabels).Default(0)
         .Ident("chord_out").Name("Chord out")
-        .Help("The chord playing now as MIDI notes on the rear header (USART1 "
-              "TX, pin 8), for Belt on a second Lab. **MIDI + clock** adds "
+        .Help("The chord playing now, for Belt on a second Lab. **MIDI**: its "
+              "notes on the rear header (USART1 TX, pin 8); **+ clock** adds "
               "MIDI clock, start and stop. Cable: pin 8 to the other Lab's "
               "pin 7, pin 7 to its pin 8, and grounds -- never a straight "
-              "ribbon, the header carries +-12 V.");
+              "ribbon, the header carries +-12 V. **CV**: J10 carries the "
+              "chord's root, 1 V/oct from 0 V = C, and Perc goes silent; Belt "
+              "builds the chord in its own key and scale, so set both modules "
+              "to the same KEY and SCALE. It changes on the bar and holds when "
+              "stopped. **CV + MIDI** is both. **CV ref** holds J10 at 0 V for "
+              "Belt's Learn.");
     s_chord_ch = settings.Page(kSettingsMain).Pot(4)
         .Selector(kChannelLabels).Default(0)
         .Ident("chord_ch").Name("Chord channel")
@@ -1246,6 +1269,7 @@ int main(void)
     g_lp_mode    = (int)s_usb.Value() == 1 && !force_mac;
     g_lp_boot_ms = System::GetNow();
 
+    chord_cv_init(&g_cv, &S); /* hold chord 1's root until it plays */
     hw.StartAudio(AudioCallback);
 
     loop.Use(pager)

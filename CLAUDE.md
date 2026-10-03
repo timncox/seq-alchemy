@@ -42,7 +42,12 @@ Gotchas:
   a second Lab. `core/chord_midi.[ch]` (tested) makes the bytes,
   `alchemy/src/midi_out.cpp` is the only file that touches the UART (the
   alchemy-lab emulator swaps in its own). Cable: crossed TX/RX + grounds,
-  never a straight ribbon -- the header carries +-12 V.
+  never a straight ribbon -- the header carries +-12 V. CV choices put the
+  chord ROOT on J10 (pitch class / 12 V; perc silent; CV ref = 0 V).
+- **J9/J10 go through `codec_volts()`**: the codec's DC output inverts
+  (-8.667 V per +1 sample, alchemy-sdk 4eb0e4c / v0.12); the pinned v0.11
+  SDK doesn't know, so seq pre-scales. It passes through once the SDK has
+  `v2_codec_cv.h` -- don't add a second correction when bumping the SDK.
 - Persistence is `seq_state_write/read` (field by field, clamped on read);
   bump `SEQ_STATE_VERSION` when the layout changes.
 

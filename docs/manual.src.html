@@ -253,7 +253,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
       <div class="rk" id="roK">Select a control</div>
       <h3 id="roT">The panel</h3>
       <div class="rs" id="roS">6 pots × 4 pages · 3 buttons · 10 jacks</div>
-      <div class="rd" id="roD">Hover or tap a pot, a button or a jack. B2 plays and stops. B2 and B3 held together for two seconds open Settings: brightness, presets, the USB port, and the SD-card firmware picker.</div>
+      <div class="rd" id="roD">Hover or tap a pot, a button or a jack. B2 plays and stops. B2 and B3 held together for two seconds open Settings: brightness, presets, the USB port, <!--@private-->chord out and its MIDI channel, <!--@/private-->and the SD-card firmware picker.</div>
       <div class="rm" id="roM"></div>
     </div>
   </div>
@@ -270,7 +270,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
       <tr><td>J7</td><td><span class="sw" style="background:#ff3030"></span>Kick</td><td>5 ms trigger</td><td>STM32 DAC</td></tr>
       <tr><td>J8</td><td><span class="sw" style="background:#ffd21f"></span>Snare</td><td>5 ms trigger</td><td>STM32 DAC</td></tr>
       <tr><td>J9</td><td><span class="sw" style="background:#30e0ff"></span>Hat</td><td>5 ms trigger</td><td>codec, DC-coupled</td></tr>
-      <tr><td>J10</td><td><span class="sw" style="background:#ff40c0"></span>Perc</td><td>5 ms trigger</td><td>codec, DC-coupled</td></tr>
+      <tr><td>J10</td><td><span class="sw" style="background:#ff40c0"></span>Perc<!--@private--> · or the chord root (Chord out: CV)<!--@/private--></td><td>5 ms trigger<!--@private--> · 1 V/oct, 0–0.917 V<!--@/private--></td><td>codec, DC-coupled</td></tr>
     </tbody>
   </table></div>
 </div></section>
@@ -404,6 +404,7 @@ footer{padding-block:40px;color:var(--dim);font-family:var(--mono);font-size:11p
   <div class="rules">
     <div class="rule"><h4>It saves when you stop</h4><p>Your patterns, knobs, locks, drums, tempo and key save themselves to preset slot 5 three seconds after the last change, but only while stopped. A save pauses the timing for a moment, which would drop beats mid-song. While playing with unsaved changes, B2 flashes magenta every two seconds. Powering off mid-jam loses what changed since the last stop.</p></div>
     <div class="rule"><h4>Launchpad mode is the default</h4><p>The front USB-C is either the host for the controllers (Launchpad) or the web programmer's port (Mac), one per boot. Hold B1 while powering up for Mac mode once. The choice lives in Settings (B2+B3 for 2 s), and every firmware on the card shares it.</p></div>
+    <!--@private--><div class="rule"><h4>Chord out: Belt on a second Lab</h4><p>Settings (B2+B3 for 2 s), pot 2, sends the chord playing now to Belt so it can harmonize to it. <b>MIDI</b>: the chord's notes on the rear header (pin 8, 31,250 baud), <b>MIDI + clock</b> adds clock, start and stop; pot 5 picks the channel. Cable: this Lab's pin 8 to the other's pin 7, its pin 7 to the other's pin 8, and grounds. Never a straight ribbon: the header carries ±12 V. <b>CV</b>: J10 carries the chord's root, 1 V/oct from 0 V = C, and Perc goes silent. Belt builds the chord in its own key and scale, so set both modules to the same KEY and SCALE. The CV changes on the bar and holds when you stop. <b>CV + MIDI</b> is both. <b>CV ref</b> holds J10 at 0 V: pick it while Belt runs its Learn, then go back to CV. Off by default.</p></div><!--@/private-->
     <div class="rule"><h4>Power for the controllers</h4><p>The Lab's front port gives no 5 V. Use a powered USB hub or OTG adapter in front of it; the host handles one hub level with up to three devices, which is exactly Launchpad + XL + Haute42.</p></div>
     <div class="rule"><h4>Other firmware on the same card</h4><p>The SD picker in Settings swaps firmware. Each one keeps its own preset slot (seq 5, Meld 6, Warps 7, Clouds 8, Elements 9, Marbles 10, Plaits 11, Smack 12, Mark 13, Belt 14, Relay 15), so switching away and back loses nothing.</p></div>
   </div>
