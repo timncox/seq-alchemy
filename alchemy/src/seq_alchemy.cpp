@@ -507,6 +507,18 @@ static bool  g_first_write = true;
 
 static float clamp_pitch(float v) { return v < 0.f ? 0.f : (v > 5.f ? 5.f : v); }
 
+/* J9 / J10 are the codec's DC outputs, and the real transfer is INVERTING:
+ * a +1 sample is -4 x 39k/18k = -8.667 V at the jack (Seed2 DFM datasheet
+ * fig. 1.4; alchemy-sdk 4eb0e4c "Fix/codec cv voltage", v0.12.0). The SDK
+ * pinned here (v0.11) still writes volts / 5 as the sample, which would put
+ * -1.73 x the volts on the jack. So on that SDK the volts are pre-scaled to
+ * land right; an SDK with the fix (v2_codec_cv.h) gets them as they are. */
+#if __has_include("alchemy/hw/v2_codec_cv.h")
+static float codec_volts(float v) { return v; }
+#else
+static float codec_volts(float v) { return v * kCodecJackFullScaleVolts / (-4.0f * 39.0f / 18.0f); }
+#endif
+
 /* Stage what changed on the MCP jacks and latch once; the STM DAC and codec
  * jacks are direct. A Flush with nothing staged returns at once. */
 static void write_jacks(const seq_out_t& o)
@@ -515,7 +527,8 @@ static void write_jacks(const seq_out_t& o)
         clamp_pitch(o.pitch[SEQ_BASS]), clamp_pitch(o.pitch[SEQ_LEAD]),
         o.gate[SEQ_BASS] ? 5.f : 0.f,   o.gate[SEQ_LEAD] ? 5.f : 0.f,
         o.trig[SEQ_KICK] ? 5.f : 0.f,   o.trig[SEQ_SNARE] ? 5.f : 0.f,
-        o.trig[SEQ_HAT] ? 5.f : 0.f,    o.trig[SEQ_PERC] ? 5.f : 0.f,
+        codec_volts(o.trig[SEQ_HAT] ? 5.f : 0.f),
+        codec_volts(o.trig[SEQ_PERC] ? 5.f : 0.f),
     };
     for(uint8_t j = 0; j < kNumCvJacks; j++)
     {
