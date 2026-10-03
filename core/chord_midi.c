@@ -1,6 +1,7 @@
 /* chord_midi -- see chord_midi.h. */
 #include "chord_midi.h"
 
+#include <math.h>
 #include <string.h>
 
 #define NOTE_OFF 0x80
@@ -64,6 +65,15 @@ int chord_midi_voicing(const seq_prog_t *pr, int ci, uint8_t *notes)
     return tones;
 }
 
+/* The progression's length in ticks (as seq.c counts it). */
+static double prog_ticks(const seq_prog_t *pr)
+{
+    double t = 0;
+    for(int i = 0; i < pr->count; i++)
+        t += (double)(pr->chord[i].bars ? pr->chord[i].bars : 1) * SEQ_BAR;
+    return t > 0 ? t : SEQ_BAR;
+}
+
 static bool has(const uint8_t *notes, int n, uint8_t x)
 {
     for(int i = 0; i < n; i++)
@@ -99,13 +109,22 @@ void chord_midi_update(chord_midi_t *m, const seq_t *s, chord_midi_ring_t *r)
     /* Transport messages. A restart is the transport rewinding to the top
      * while it runs (seq_play again, a J2 reset). */
     const bool restart = clocked && m->clock_started && s->pos < m->last_pos;
-    const bool start   = clocked && (!m->clock_started || restart);
+    /* The progression looping back to its first chord while it runs gets
+     * a Start too (Tim, 2026-10-03), sent in the call that crosses the bar
+     * line, so before that bar's clock. The clock count carries on: only a
+     * real start or rewind sets it back to 0. A progression edited on the
+     * way (its length changed) is not a loop. */
+    const double total = prog_ticks(&s->prog);
+    const bool   wrap  = clocked && m->clock_started && !restart && total == m->last_total
+                      && s->pos > m->last_pos && m->last_pos >= 0
+                      && fmod(s->pos, total) < fmod(m->last_pos, total);
+    const bool start   = clocked && (!m->clock_started || restart || wrap);
     const bool stop    = m->clock_started && !clocked;
     int32_t    tick    = m->clock_tick;
     int        clocks  = 0;
     if(clocked)
     {
-        if(start)
+        if(start && !wrap)
             tick = 0;
         /* Clocks due by now: one at tick 0, then every 4 ticks. */
         int32_t due = s->pos < 0 ? 0 : (int32_t)(s->pos / TICKS_PER_CLOCK) + 1;
@@ -120,7 +139,8 @@ void chord_midi_update(chord_midi_t *m, const seq_t *s, chord_midi_ring_t *r)
                   + (size_t)clocks;
     if(need == 0)
     {
-        m->last_pos    = s->pos;
+        m->last_pos   = s->pos;
+        m->last_total = total;
         return;
     }
     if(chord_midi_ring_free(r) < need)
@@ -156,6 +176,7 @@ void chord_midi_update(chord_midi_t *m, const seq_t *s, chord_midi_ring_t *r)
     m->clock_started = clocked;
     m->clock_tick    = clocked ? tick + clocks : 0;
     m->last_pos      = s->pos;
+    m->last_total    = total;
 }
 
 /* ---------------------------------------------------------------- CV */
