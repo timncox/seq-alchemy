@@ -34,10 +34,12 @@ CPP_SOURCES = \
     src/seq_alchemy.cpp \
     src/picker.cpp \
     src/launchpad.cpp \
-    src/usb_shared.cpp
+    src/usb_shared.cpp \
+    src/midi_out.cpp
 
 C_SOURCES = \
     ../core/seq.c \
+    ../core/chord_midi.c \
     src/usbh_hub_midi.c
 
 # ── Alchemy SDK, compiled straight from the submodule ───────────────────────

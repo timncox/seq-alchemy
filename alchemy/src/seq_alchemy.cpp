@@ -12,7 +12,8 @@
  *   DRUMS        KICK · SNARE · HAT · PERC · STYLE · PATTERN            (B1 cycles)
  *   SETUP        TEMPO · SWING · GLIDE · KEY · SCALE · CLOCK IN      (hold B3)
  *   B2           tap = play / stop
- *   Settings (B2+B3 2 s): brightness, presets, USB port; page 1 = SD picker
+ *   Settings (B2+B3 2 s): brightness, presets, USB port, chord out + its
+ *                MIDI channel; page 1 = SD picker
  *
  * Jacks (all +-5 V; pitch 1 V/oct, gates and triggers 0/5 V):
  *
@@ -23,6 +24,13 @@
  *
  * Pitch and gate of a voice latch in the same MCP write, so a gate never
  * rises before its pitch has moved.
+ *
+ * Chord out (Settings, default Off): the chord playing now as MIDI notes on
+ * the rear header, USART1 TX = header pin 8, 31,250 baud -- for Belt on a
+ * second Lab to harmonize to. Off / MIDI (notes) / MIDI + clock (adds 0xF8
+ * at 24 PPQN and start/stop). Cable: pin 8 to the other Lab's pin 7, pin 7
+ * to its pin 8, plus grounds; NEVER a straight ribbon, the header carries
+ * +-12 V. See midi_out.h and core/chord_midi.h.
  *
  * The voice pots edit the CURRENT pattern slot's knobs. Each slot keeps its
  * own knobs, so when a queued slot takes over (or the Launchpad, the XL or
@@ -66,8 +74,10 @@
 #include "alchemy/surface/virtual_button.h"
 #include "alchemy/surface/virtual_knob.h"
 
+#include "chord_midi.h"
 #include "extras.h"
 #include "launchpad.h"
+#include "midi_out.h"
 #include "picker.h"
 #include "seq.h"
 #include "usb_shared.h"
@@ -134,6 +144,9 @@ static const char* const kScaleLabels[SEQ_SCALE_COUNT] = {
 static const char* const kClockLabels[4] = {"1 ppqn", "2 ppqn", "16ths", "24 ppqn"};
 static const uint8_t     kClockPpqn[4]   = {1, 2, 4, 24};
 static const char* const kUsbLabels[2]   = {"Mac", "Launchpad"};
+static const char* const kChordOutLabels[CHORD_MIDI_MODES] = {"Off", "MIDI", "MIDI + clock"};
+static const char* const kChannelLabels[16] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
 static const char* const kStyleLabels[SEQ_DSTYLE_COUNT] = {
     "Gen 1", "Gen 2", "Gen 3", "Gen 4", "Euclid 1", "Euclid 2", "Euclid 3", "Euclid 4"};
 static const char* const kPatLabels[SEQ_DRUM_SLOTS] = {
@@ -279,6 +292,13 @@ static hostlink::FsExtension fs_ext(sd);
 static hostlink::Host host(presets, "seq_alchemy", "seq", SEQ_VERSION, SEQ_GIT_HASH);
 static SeqExtras      extras;
 static SelectorHandle s_usb;
+static SelectorHandle s_chord_out;
+static SelectorHandle s_chord_ch;
+
+/* Chord out: the byte ring lives in DTCM with the rest of the poll's state
+ * (~300 B). */
+static chord_midi_t      g_cm;
+static chord_midi_ring_t g_cm_ring;
 
 /* ---- selector hysteresis (see relay_alchemy.cpp) ------------------------- */
 
@@ -924,6 +944,14 @@ static void OnPoll(uint32_t now)
     seq_process(&S, us, &o);
     write_jacks(o);
 
+    /* Chord out: what changed goes into the ring, the ring into the UART's
+     * FIFO. The UART is only claimed once the output is first switched on. */
+    g_cm.mode    = s_chord_out.Value();
+    g_cm.channel = s_chord_ch.Value();
+    if(g_cm.mode != CHORD_MIDI_OFF) midiout::Init();
+    chord_midi_update(&g_cm, &S, &g_cm_ring);
+    midiout::Drain(&g_cm_ring);
+
     if(g_lp_mode)
     {
         /* Give the port a moment after boot before the host starts (Mark:
@@ -1087,6 +1115,8 @@ int main(void)
     /* The engine first: a preset load below overwrites what it keeps. */
     seq_init(&S, 2026u);
     extras.seq = &S;
+    chord_midi_init(&g_cm);
+    chord_midi_ring_init(&g_cm_ring);
 
     for(uint8_t j = 0; j < kNumCvJacks; j++)
     {
@@ -1108,6 +1138,18 @@ int main(void)
               "for the web programmer, presets and the card. Takes effect "
               "when the module next powers up; hold B1 while powering up for "
               "Mac mode once.");
+    s_chord_out = settings.Page(kSettingsMain).Pot(1)
+        .Selector(kChordOutLabels).Default(0)
+        .Ident("chord_out").Name("Chord out")
+        .Help("The chord playing now as MIDI notes on the rear header (USART1 "
+              "TX, pin 8), for Belt on a second Lab. **MIDI + clock** adds "
+              "MIDI clock, start and stop. Cable: pin 8 to the other Lab's "
+              "pin 7, pin 7 to its pin 8, and grounds -- never a straight "
+              "ribbon, the header carries +-12 V.");
+    s_chord_ch = settings.Page(kSettingsMain).Pot(4)
+        .Selector(kChannelLabels).Default(0)
+        .Ident("chord_ch").Name("Chord channel")
+        .Help("The MIDI channel chord out sends on.");
 
     host.Product("seq")
         .BootSlot(kHomeSlot)
