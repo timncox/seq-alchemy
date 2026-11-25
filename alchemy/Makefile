@@ -35,12 +35,15 @@ CPP_SOURCES = \
     src/picker.cpp \
     src/launchpad.cpp \
     src/usb_shared.cpp \
-    src/midi_out.cpp
+    src/midi_out.cpp \
+    src/phone_ext.cpp \
+    src/midi_usb_transport.cpp
 
 C_SOURCES = \
     ../core/seq.c \
     ../core/chord_midi.c \
-    src/usbh_hub_midi.c
+    src/usbh_hub_midi.c \
+    src/uac_none.c
 
 # ── Alchemy SDK, compiled straight from the submodule ───────────────────────
 CPP_SOURCES += $(sort $(shell find $(ALCHEMY_DIR)/framework/src -name '*.cpp'))

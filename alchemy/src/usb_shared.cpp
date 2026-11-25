@@ -35,6 +35,8 @@ int Load(alchemy::SdCard& sd, uint32_t timeout_ms)
     if (s_buf[0] == 'l' || s_buf[0] == 'L') return 1;
     if (s_buf[0] == 'm' || s_buf[0] == 'M') return 0;
     if (s_buf[0] == 'a' || s_buf[0] == 'A') return 2;
+    /* "phone+audio" before "phone": older copies stop at the 'p' (3). */
+    if (s_buf[0] == 'p' || s_buf[0] == 'P') return strchr(s_buf, '+') ? 4 : 3;
     return -1;
 }
 
@@ -42,7 +44,9 @@ bool Save(alchemy::SdCard& sd, int mode, uint32_t now_ms)
 {
     if (!sd.EnsureMounted(now_ms)) return false;
     if (f_open(&s_fil, kPath, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return false;
-    const char* text = mode == 2 ? "audio\n" : (mode ? "launchpad\n" : "mac\n");
+    const char* text = mode == 4 ? "phone+audio\n"
+                     : mode == 3 ? "phone\n"
+                     : mode == 2 ? "audio\n" : (mode ? "launchpad\n" : "mac\n");
     strncpy(s_buf, text, sizeof s_buf - 1);
     UINT w = 0;
     const FRESULT r = f_write(&s_fil, s_buf, (UINT)strlen(s_buf), &w);

@@ -88,6 +88,8 @@
 #include "chord_midi.h"
 #include "extras.h"
 #include "launchpad.h"
+#include "led_mirror.h"
+#include "phone_kit.h"
 #include "midi_out.h"
 #include "picker.h"
 #include "seq.h"
@@ -154,7 +156,7 @@ static const char* const kScaleLabels[SEQ_SCALE_COUNT] = {
     "Mixolydian", "Harm minor", "Minor pent", "Major pent"};
 static const char* const kClockLabels[4] = {"1 ppqn", "2 ppqn", "16ths", "24 ppqn"};
 static const uint8_t     kClockPpqn[4]   = {1, 2, 4, 24};
-static const char* const kUsbLabels[2]   = {"Mac", "Launchpad"};
+static const char* const kUsbLabels[3]   = {"Mac", "Launchpad", "Phone"};
 static const char* const kChordOutLabels[CHORD_OUT_CHOICES] = {
     "Off", "MIDI", "MIDI + clock", "CV", "CV + MIDI", "CV ref"};
 static const char* const kChannelLabels[16] = {
@@ -283,9 +285,29 @@ static Manual manual = Manual()
 /* ---- surfaces ------------------------------------------------------------ */
 
 static ControlLoop loop(hw);
+/* The panel buttons with the iPhone app's presses added (phone_kit.h):
+ * declared before the pager, which holds B1 and B3. */
+static phonefront::Buttons     g_ph;
+static phonefront::PanelButton g_btn[3];
 static Pager       pager = Pager(kNumAppPages, kNumPots)
-                               .Cycle(hw.buttons[kButtonB1], kPageBass, kPageLead, kPageDrums)
-                               .Shift(hw.buttons[kButtonB3], kPageSetup);
+                               .Cycle(g_btn[kButtonB1], kPageBass, kPageLead, kPageDrums)
+                               .Shift(g_btn[kButtonB3], kPageSetup);
+
+/* The front USB-C as HostLink: Mac (serial) or Phone (USB MIDI, the
+ * Alchemy Screen iPhone app), picked at power-up from the USB port setting.
+ * Launchpad runs its own USB host and leaves these alone. */
+static daisy::UsbHandle                 front_usb;
+static hostlink::CdcUsbTransport        front_cdc;
+static hostlink::MidiUsbHostTransport   front_midi;
+static phone::SwitchTransport           front_link;
+static phone::LedMirror<kLedTotal>      led_mirror;
+static phone::PhoneExtension            phone_ext;
+static bool                             g_phone = false;
+
+static bool OnPhonePress(uint8_t button, uint8_t gesture, void*)
+{
+    return g_ph.Press(button, gesture, System::GetNow());
+}
 
 /*
  * This firmware's own preset slot. Every Alchemy firmware in the family
@@ -948,7 +970,7 @@ static uint8_t g_btn_swallow = 0;
 
 static bool btn_live(uint8_t b)
 {
-    const bool    down = hw.buttons[b].Pressed();
+    const bool    down = g_btn[b].Pressed();
     const uint8_t bit  = (uint8_t)(1u << b);
     if(g_btn_swallow & bit)
     {
@@ -1011,7 +1033,7 @@ static void OnPoll(uint32_t now)
     /* B2: play / stop, on release. Stands down while B3 is held: B2+B3 held
      * two seconds is the Settings chord. */
     const bool pressed = btn_live(kButtonB2);
-    const bool shift   = hw.buttons[kButtonB3].Pressed();
+    const bool shift   = g_btn[kButtonB3].Pressed();
     if(pressed && !b2.down)
     {
         b2.down = true;
@@ -1068,6 +1090,10 @@ static void OnFrame(void)
     }
 
     const bool sact = settings.IsActive();
+    /* A firmware switch the iPhone app started; a phone hold is let go
+     * when Settings opens. */
+    picker::Service(now);
+    if(sact) g_ph.Release();
     if(prev_settings && !sact) mark_dirty(now);
     prev_settings = sact;
 
@@ -1076,15 +1102,15 @@ static void OnFrame(void)
     static int shared_written = -2;
     if(shared_written == -2) shared_written = (int)s_usb.Value();
     if(!sact && (int)s_usb.Value() != shared_written && !picker::Busy()
-       && usbshared::Save(sd, (int)s_usb.Value(), now))
+       && usbshared::Save(sd, (int)s_usb.Value() == 2 ? 3 : (int)s_usb.Value(), now))
         shared_written = (int)s_usb.Value();
 
     /* Autosave: 3 s after the last change, hands off, and only while
      * STOPPED (the save pauses the 1 ms poll; see the header). A held
      * gamepad fill or mute must not be saved either. */
     if(g_dirty && !S.running && now - g_dirty_since >= 3000u && !sact && !picker::Busy()
-       && g_pad_held == 0 && !hw.buttons[kButtonB1].Pressed()
-       && !hw.buttons[kButtonB2].Pressed() && !hw.buttons[kButtonB3].Pressed())
+       && g_pad_held == 0 && !g_btn[kButtonB1].Pressed()
+       && !g_btn[kButtonB2].Pressed() && !g_btn[kButtonB3].Pressed())
     {
         presets.Save(kHomeSlot);
         g_dirty = false;
@@ -1142,6 +1168,10 @@ static void AudioCallback(daisy::AudioHandle::InputBuffer  /*in*/,
 int main(void)
 {
     hw.Init(daisy::SaiHandle::Config::SampleRate::SAI_48KHZ, kBlockSize);
+    /* Every frame the panel shows is copied for the phone. */
+    led_mirror.Wrap(hw.strip);
+    hw.leds.Init(led_mirror, hw.Layout());
+    for(uint8_t b = 0; b < 3; b++) g_btn[b].Bind(hw.buttons[b], g_ph, b);
 
     /* The engine first: a preset load below overwrites what it keeps. */
     seq_init(&S, 2026u);
@@ -1166,7 +1196,9 @@ int main(void)
         .Help("**Launchpad**: the Lab is the USB host for a Launchpad Mini "
               "MK3, a Launch Control XL and a Haute42 gamepad (XInput), "
               "through a powered hub. **Mac**: the front USB-C is HostLink, "
-              "for the web programmer, presets and the card. Takes effect "
+              "for the web programmer, presets and the card. **Phone**: the "
+              "front USB-C is a USB MIDI device for the Alchemy Screen "
+              "iPhone app. Takes effect "
               "when the module next powers up; hold B1 while powering up for "
               "Mac mode once.");
     s_chord_out = settings.Page(kSettingsMain).Pot(1)
@@ -1193,7 +1225,13 @@ int main(void)
         .Jacks(jk_j1, jk_j2, jk_j3, jk_j4, jk_j5, jk_j6, jk_j7, jk_j8, jk_j9, jk_j10)
         .Buttons(bt_voice, bt_play, bt_setup)
         .Attach(manual)
-        .Extend(fs_ext);
+        .Extend(fs_ext)
+        .Extend(phone_ext);
+    host.Transport(front_link);   /* opened as Mac or Phone below */
+    phone_ext.Screen(led_mirror)
+        .Firmware(picker::Remote())
+        .Press(&OnPhonePress, nullptr)
+        .Unit(phonefront::UnitId());
 
     presets.Manage(pager);
     presets.Manage(settings);
@@ -1245,7 +1283,8 @@ int main(void)
     const int shared_usb = usbshared::Load(sd, 500);
     if(shared_usb >= 0)
     {
-        const int want = shared_usb == 1 ? 1 : 0;
+        /* Phone and Phone+Audio are Phone here (no audio). */
+        const int want = shared_usb == 1 ? 1 : (shared_usb >= 3 ? 2 : 0);
         if(want != (int)s_usb.Value()) s_usb.Default((uint8_t)want);
     }
     for(int i = 0; i < 20; i++)
@@ -1268,6 +1307,17 @@ int main(void)
     }
     g_lp_mode    = (int)s_usb.Value() == 1 && !force_mac;
     g_lp_boot_ms = System::GetNow();
+    g_phone      = (int)s_usb.Value() == 2 && !force_mac;
+    if(g_phone)
+    {
+        front_midi.Init(front_usb, daisy::UsbHandle::FS_EXTERNAL, "Alchemy Lab");
+        front_link.Use(front_midi);
+    }
+    else if(!g_lp_mode)
+    {
+        front_cdc.Init(front_usb, daisy::UsbHandle::FS_EXTERNAL, "seq");
+        front_link.Use(front_cdc);
+    }
 
     chord_cv_init(&g_cv, &S); /* hold chord 1's root until it plays */
     hw.StartAudio(AudioCallback);
